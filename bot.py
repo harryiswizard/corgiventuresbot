@@ -238,6 +238,11 @@ def member(ctx, member_id):
     return (ctx or {}).get("members", {}).get(member_id)
 
 
+def arrow(old, new):
+    """Forward through the funnel, or back."""
+    return "\u2192" if stage_rank(new) >= stage_rank(old) else "\u21a9"
+
+
 def deal_url(cfg, opp_id):
     return f"{cfg['app_base_url'].rstrip('/')}/object/opportunity/{opp_id}"
 
@@ -304,11 +309,9 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
 def stage_change_msg(cfg, opp, old, new, ctx):
     moved_back = old is not None and stage_rank(new) < stage_rank(old)
     headline = f"{stage_label(new)}{' (moved back)' if moved_back else ''}"
-    body = card(cfg, opp, ctx, headline, "Stage Updated", stage_for_money=new)
-    # Show where it came from, under the stage line.
-    return body.replace(f"\U0001f504 Stage Updated: <b>{stage_label(new)}</b>",
-                        f"\U0001f504 Stage Updated: {stage_label(old)} → "
-                        f"<b>{stage_label(new)}</b>", 1)
+    transition = f"{stage_label(old)} {arrow(old, new)} " if old else ""
+    return card(cfg, opp, ctx, headline, "Stage Updated",
+                stage=new, transition=transition)
 
 
 def new_deal_msg(cfg, opp, ctx):
