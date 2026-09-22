@@ -821,7 +821,10 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
                  + (f" · topic <code>{thread_id}</code>" if thread_id else ""),
                  chat_id, thread_id)
         else:
-            return
+            # Never stay silent: an unanswered command is indistinguishable
+            # from the bot being down.
+            send(tg, f"I don't know <code>{html.escape(cmd)}</code>.\n\n" + HELP,
+                 chat_id, thread_id)
         log(f"answered {cmd} for {chat_id}")
     except tw.TwentyError as e:
         send(tg, f"Twenty API error: {html.escape(str(e))}", chat_id, thread_id)
