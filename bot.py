@@ -160,6 +160,19 @@ def tg_config():
     return cfg
 
 
+_ME = {"username": None}
+
+
+def me_username(tg):
+    """Our own @name, fetched once. Telegram privacy mode still delivers every
+    slash command in a group to every bot in it, so `/dials@pfadialbot` arrives
+    here too and has to be filtered out by name."""
+    if _ME["username"] is None:
+        r = tg_api("getMe", tg) or {}
+        _ME["username"] = ((r.get("result") or {}).get("username") or "").lower()
+    return _ME["username"]
+
+
 def chat_ids(tg):
     ids = []
     if tg.get("chat_id"):
@@ -227,8 +240,25 @@ def set_home(tg, chat_id, thread_id):
     tg["home"], tg["allowed_chats"] = h, allowed
 
 
+def off_home(tg, chat_id, thread_id):
+    """True for anything outside the pinned chat/topic.
+
+    Once /here has pinned the bot, that chat — and that topic, in a forum group
+    — is the only place it answers. Other topics, other groups and DMs are
+    ignored, so two bots sharing a group never answer each other's commands.
+    The owner's DM keeps the admin commands handled above this check, so there
+    is always a way to re-pin.
+    """
+    h = home(tg)
+    if not h:
+        return False
+    if str(chat_id) != h[0]:
+        return True
+    return bool(h[1]) and str(thread_id or "") != str(h[1])
+
+
 def wrong_topic(tg, chat_id, thread_id):
-    """True for a message in the pinned group but outside the pinned topic."""
+    """Kept for callers that only care about the topic within the pinned chat."""
     h = home(tg)
     if not h or not h[1] or str(chat_id) != h[0]:
         return False
@@ -820,11 +850,13 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send(tg, f"Chat id: <code>{chat_id}</code>"
                  + (f" · topic <code>{thread_id}</code>" if thread_id else ""),
                  chat_id, thread_id)
-        else:
-            # Never stay silent: an unanswered command is indistinguishable
-            # from the bot being down.
+        elif not str(chat_id).startswith("-"):
+            # Unknown command: answer in a one-to-one chat, but stay quiet in a
+            # group, where it would just be noise alongside the other bots.
             send(tg, f"I don't know <code>{html.escape(cmd)}</code>.\n\n" + HELP,
                  chat_id, thread_id)
+        else:
+            return
         log(f"answered {cmd} for {chat_id}")
     except tw.TwentyError as e:
         send(tg, f"Twenty API error: {html.escape(str(e))}", chat_id, thread_id)
@@ -844,7 +876,10 @@ def drain_commands(cfg, tg, state, caches, wait=0):
         thread = msg.get("message_thread_id")  # set in forum-group topics
         if not text.startswith("/"):
             continue
-        cmd = text.split()[0].lower().split("@")[0]
+        head = text.split()[0]
+        if "@" in head and head.split("@", 1)[1].lower() != me_username(tg):
+            continue                     # addressed to a different bot
+        cmd = head.lower().split("@")[0]
         owner = chat == str(tg.get("chat_id"))
         if cmd == "/pin" and owner:
             # Owner approves a /here request: /pin <chat_id> [topic_id]
@@ -883,7 +918,8 @@ def drain_commands(cfg, tg, state, caches, wait=0):
                      + "</code> to approve.")
                 send(tg, "Asked the owner to approve this topic.", chat, thread)
             continue
-        if wrong_topic(tg, chat, thread):
+        if off_home(tg, chat, thread):
+            log(f"ignoring {cmd} from outside the pinned topic ({chat}/{thread})")
             continue
         if allowed and chat not in allowed:
             log(f"ignoring command from unlisted chat {chat}")
