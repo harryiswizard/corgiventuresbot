@@ -110,18 +110,20 @@ def period_value(events, by_id):
     return total, currency, missing
 
 
-def _names(evs, by_id):
-    """Deal names, each with its value, so the money is visible per deal."""
-    out = []
-    for e in evs[:MAX_NAMES]:
+def _value_of(evs, by_id):
+    """Total value behind a set of events. Reports are counts and money only —
+    no deal names."""
+    total, currency = 0.0, "USD"
+    for e in evs:
         live = by_id.get(e.get("id")) or {}
         val = amount_value(live.get("amount"))
         if val is None:
-            val = e.get("amount_value") or 0.0
-        out.append(f"{html.escape(e.get('name') or '(unnamed)')} "
-                   f"{fmt_money(val, e.get('currency'))}")
-    extra = len(evs) - len(out)
-    return "\n   ".join(out) + (f"\n   +{extra} more" if extra > 0 else "")
+            val = e.get("amount_value")
+        if val:
+            total += val
+            currency = ((live.get("amount") or {}).get("currencyCode")
+                        or e.get("currency") or currency)
+    return total, currency
 
 
 def report(cfg, period, caches=None):
@@ -150,33 +152,29 @@ def report(cfg, period, caches=None):
     won_evs = [e for e in moves if e.get("to") == "CLOSED_WON"]
     sent_evs = [e for e in moves if e.get("to") == "QUOTE_SENT"]
     if won_evs:
-        val, cur, missing = period_value(won_evs, by_id)
+        val, cur, _ = period_value(won_evs, by_id)
         lines.append(f"\n{TROPHY} <b>Closed won: {len(won_evs)} · "
                      f"{fmt_money(val, cur)}</b>"
-                     + (f"\n   <i>{missing} with no amount set</i>" if missing else ""))
+                     )
     if sent_evs:
-        val, cur, missing = period_value(sent_evs, by_id)
+        val, cur, _ = period_value(sent_evs, by_id)
         lines.append(f"{OUTBOX} <b>Quotes sent: {len(sent_evs)} · "
                      f"{fmt_money(val, cur)}</b>"
-                     + (f"\n   <i>{missing} with no amount set</i>" if missing else ""))
+                     )
 
     if bulk:
-        lines.append(f"\n\u26a0\ufe0f <i>{len(bulk)} deal(s) moved by a pipeline edit in "
-                     f"Twenty, not by a rep \u2014 left out of the counts below.</i>")
+        lines.append(f"\n<i>{len(bulk)} deal(s) moved by a pipeline edit in Twenty, "
+                     f"not by a rep \u2014 left out of the counts below.</i>")
 
-    who = []
-    for e in appointed[:MAX_NAMES]:
-        by = f" (by {html.escape(e['by'])})" if e.get("by") else ""
-        who.append(f"{html.escape(e.get('name') or '(unnamed)')}{by}")
-    extra = len(appointed) - len(who)
-    block = f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>"
-    if who:
-        block += "\n   " + "\n   ".join(who) + (f"\n   +{extra} more" if extra > 0 else "")
-    lines.append(block)
+    lines.append(f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>")
+    if appointed:
+        by_rep = {}
+        for e in appointed:
+            by_rep[e.get("by") or "Unassigned"] = by_rep.get(e.get("by") or "Unassigned", 0) + 1
+        lines.append("   " + " \u00b7 ".join(f"{html.escape(k)} {v}"
+                                             for k, v in sorted(by_rep.items(), key=lambda x: -x[1])))
     if unappointed:
-        lines.append(f"\u21a9 <b>Appointments removed: {len(unappointed)}</b>\n   "
-                     + ", ".join(html.escape(e.get("name") or "(unnamed)")
-                                 for e in unappointed[:MAX_NAMES]))
+        lines.append(f"\u21a9 <b>Appointments removed: {len(unappointed)}</b>")
 
     if moves:
         by_stage = {}
@@ -184,16 +182,17 @@ def report(cfg, period, caches=None):
             by_stage.setdefault(e.get("to"), []).append(e)
         lines.append(f"\n<b>Stage changes: {len(moves)}</b>")
         for s in sorted(by_stage, key=stage_rank):
+            val, cur = _value_of(by_stage[s], by_id)
+            money = f" \u00b7 {fmt_money(val, cur)}" if val else ""
             lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {ARROW} {stage_label(s)}: "
-                         f"<b>{len(by_stage[s])}</b>\n   {_names(by_stage[s], by_id)}")
+                         f"<b>{len(by_stage[s])}</b>{money}")
     else:
         lines.append("\nNo stage changes in this period.")
 
     if new:
-        lines.append(f"\n{NEW} <b>New deals: {len(new)}</b>\n   {_names(new, by_id)}")
+        lines.append(f"\n{NEW} <b>New deals: {len(new)}</b>")
     if gone:
-        lines.append(f"\n{BIN} <b>Left the pipeline: {len(gone)}</b>"
-                     f"\n   {_names(gone, by_id)}")
+        lines.append(f"\n{BIN} <b>Left the pipeline: {len(gone)}</b>")
 
     if moves and period in ("weekly", "monthly"):
         by_owner = {}
@@ -221,9 +220,7 @@ def report(cfg, period, caches=None):
                          f"<b>{counts.get(s, 0)}</b> · {fmt_money(values.get(s) or 0)}")
         open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
         lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
-        if not any(values.values()):
-            lines.append("<i>Every Amount in Twenty is blank, so these read $0 "
-                         "until one is filled in.</i>")
+
 
     lines.append("")
     lines.append(appointments_line(cfg))

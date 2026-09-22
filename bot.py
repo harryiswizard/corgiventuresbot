@@ -246,9 +246,9 @@ def esc(v):
     return html.escape(str(v))
 
 
-def card(cfg, opp, ctx, headline, updated_label, stage_for_money=None):
+def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
     """The message body. Lines with nothing behind them are left out."""
-    stage = opp.get("stage")
+    stage = stage or opp.get("stage")
     pipeline = opp.get("pipeline")
     emoji = STAGE_EMOJI.get(stage, "\U0001f514")
     header = (f"{emoji} <b>{PIPELINE_SHORT.get(pipeline, pipeline_label(pipeline).upper())}"
@@ -265,14 +265,13 @@ def card(cfg, opp, ctx, headline, updated_label, stage_for_money=None):
     state = company_field(opp, ctx, "state")
     if state:
         lines.append(f"\U0001f30e State: {esc(state)}")
-    lines.append(f"\U0001f504 {updated_label}: <b>{stage_label(stage)}</b>")
+    lines.append(f"\U0001f504 {updated_label}: {transition or ''}<b>{stage_label(stage)}</b>")
 
     amt = money(opp.get("amount"))
-    if (stage_for_money or stage) in MONEY_STAGES:
+    if stage in MONEY_STAGES:
         val = amount_value(opp.get("amount")) or 0
         cur = (opp.get("amount") or {}).get("currencyCode")
-        lines.append(f"\U0001f4b0 Amount: <b>{fmt_money(val, cur)}</b>"
-                     + ("" if val else " <i>(not set in Twenty)</i>"))
+        lines.append(f"\U0001f4b0 Amount: <b>{fmt_money(val, cur)}</b>")
     elif amt:
         lines.append(f"\U0001f4b0 Amount: <b>{amt}</b>")
 
@@ -366,9 +365,8 @@ def company_card(cfg, rec, appointed=True):
     when = fmt_time(rec.get("updatedAt"), cfg)
     if when:
         lines.append(f"\u23f0 {'Appointed' if appointed else 'Changed'}: {when}")
-    by = (rec.get("updatedBy") or {}).get("name")
-    if by:
-        lines.append(f"\U0001f468\u200d\U0001f4bc By: {esc(by)}")
+    by = (rec.get("updatedBy") or {}).get("name") or "Unassigned"
+    lines.append(f"\U0001f468\u200d\U0001f4bc By: {esc(by)}")
 
     url = f"{cfg['app_base_url'].rstrip('/')}/object/company/{rec['id']}"
     lines += ["", f'\U0001f517 <a href="{url}">View Company in Twenty</a>']
@@ -661,8 +659,6 @@ def cmd_pipeline(cfg, caches):
                      f"<b>{counts.get(s, 0)}</b> · {fmt_money(totals.get(s) or 0)}")
     open_val = sum(v for k, v in totals.items() if k != "CLOSED_WON")
     lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
-    if not any(totals.values()):
-        lines.append("<i>Every Amount in Twenty is blank, so these read $0.</i>")
 
     lines.append("")
     lines.append(appointments_line(cfg))
@@ -698,8 +694,7 @@ def appointments_line(cfg):
     out = f"\U0001f91d <b>Appointed agencies: {len(appointed)}</b>"
     if any(recent.values()):
         out += f"\n   {recent[7]} in the last 7 days \u00b7 {recent[30]} in the last 30"
-    elif not appointed:
-        out += "\n   <i>Nothing has the Appointed toggle switched on yet.</i>"
+
     return out
 
 
