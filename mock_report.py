@@ -58,6 +58,49 @@ def mock(cfg, period, days, numbers, snapshot, appointed_total, recent):
     return reports.report(cfg, period)
 
 
+def fake_ctx():
+    """Company and member lookups the cards render from."""
+    companies = {
+        "co-1": {"id": "co-1", "name": "Customer First Insurance",
+                 "leadType": "INSURANCE_BROKER", "region": "Pennsylvania",
+                 "address": {"addressState": "Pennsylvania"},
+                 "domainName": {"primaryLinkUrl": "customerfirstins.com"},
+                 "phone": {"primaryPhoneNumber": "2155550147"},
+                 "updatedAt": bot.now_local(bot.load_config()).isoformat(),
+                 "updatedBy": {"name": "Eddie Graczyk"}},
+    }
+    return {"members": {"m-ae": "Karson Kitchen", "m-bdr": "Abush Jones"},
+            "companies": companies}
+
+
+def fake_deal(name, stage, dollars=None, days_out=8):
+    now = datetime.now()
+    return {"id": "11111111-2222-3333-4444-555555555555", "name": name,
+            "stage": stage, "pipeline": "ES_CARRIER", "companyId": "co-1",
+            "ownerId": "m-ae", "bdrId": "m-bdr", "dealSource": "COLD_CALL",
+            "amount": micros(dollars) if dollars else {},
+            "updatedAt": now.isoformat(),
+            "closeDate": (now + timedelta(days=days_out)).isoformat()}
+
+
+def mock_cards(cfg):
+    """One of every notification, with invented but realistic detail."""
+    ctx = fake_ctx()
+    submitted = fake_deal("113 W Girard LLC", "QUOTE_RECEIVED")
+    quoted = fake_deal("113 W Girard LLC", "QUOTE_SENT", 48_500)
+    won = fake_deal("113 W Girard LLC", "CLOSED_WON", 43_080.63)
+    return [
+        bot.new_deal_msg(cfg, submitted, ctx),
+        bot.stage_change_msg(cfg, quoted, "QUOTE_RECEIVED", "QUOTE_SENT", ctx),
+        bot.stage_change_msg(cfg, won, "QUOTE_SENT", "CLOSED_WON", ctx),
+        bot.stage_change_msg(cfg, submitted, "QUOTE_SENT", "QUOTE_RECEIVED", ctx),
+        bot.company_card(cfg, ctx["companies"]["co-1"], appointed=True),
+        bot.removed_msg(cfg, {"name": "113 W Girard LLC", "pipeline": "ES_CARRIER",
+                              "stage": "QUOTE_SENT"}, ctx),
+        bot.burst_msg(cfg, [("stage", quoted, "QUOTE_RECEIVED")] * 130),
+    ]
+
+
 def main():
     random.seed(7)
     cfg = bot.load_config()
@@ -73,8 +116,34 @@ def main():
         {f"deal-{i}": {"id": f"deal-{i}", "amount": v} for i, v in
          enumerate(deals.values())})
 
-    out = [mock(cfg, "weekly", 7, (23, 14, 6, 9), week_snapshot, 74, (9, 31)),
-           mock(cfg, "monthly", 30, (88, 51, 24, 31), month_snapshot, 74, (9, 31))]
+    day_snapshot = lambda deals: (
+        {"QUOTE_RECEIVED": 64, "QUOTE_SENT": 21, "CLOSED_WON": 11}, 96,
+        {"QUOTE_RECEIVED": 1_180_000, "QUOTE_SENT": 1_640_000, "CLOSED_WON": 487_500},
+        {f"deal-{i}": {"id": f"deal-{i}", "amount": v} for i, v in
+         enumerate(deals.values())})
+
+    wanted = [a for a in sys.argv[1:] if not a.startswith("--")] or \
+             ["daily", "weekly", "monthly"]
+    if "cards" in wanted:
+        out = mock_cards(cfg)
+        if "--send" in sys.argv:
+            tg = bot.tg_config()
+            for m in out:
+                bot.send(tg, "\U0001f9ea <i>mock-up \u2014 invented deal</i>\n" + m)
+            print(f"sent {len(out)} cards")
+        else:
+            import re
+            for m in out:
+                print(re.sub(r"<a href=\"[^\"]+\">([^<]+)</a>", r"\1",
+                             re.sub(r"</?b>|</?i>", "", m)).replace("&amp;", "&"))
+                print("\n" + "-" * 40 + "\n")
+        return
+    plans = {
+        "daily":   lambda: mock(cfg, "daily", 1, (6, 4, 2, 3), day_snapshot, 74, (9, 31)),
+        "weekly":  lambda: mock(cfg, "weekly", 7, (23, 14, 6, 9), week_snapshot, 74, (9, 31)),
+        "monthly": lambda: mock(cfg, "monthly", 30, (88, 51, 24, 31), month_snapshot, 74, (9, 31)),
+    }
+    out = [plans[w]() for w in wanted if w in plans]
 
     if "--send" in sys.argv:
         tg = bot.tg_config()
