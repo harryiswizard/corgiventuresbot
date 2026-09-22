@@ -203,13 +203,6 @@ def report(cfg, period, caches=None):
         lines.append("\n<b>By owner</b>\n   " +
                      " · ".join(f"{html.escape(k)} {v}" for k, v in top))
 
-        by_day = {}
-        for e in moves:
-            by_day[e["_ts"].date()] = by_day.get(e["_ts"].date(), 0) + 1
-        lines.append("\n<b>By day</b>\n   " +
-                     " · ".join(f"{d.strftime('%-d %b')} {by_day[d]}"
-                                     for d in sorted(by_day)[-14:]))
-
     if snapshot_error:
         lines.append(f"\n(Pipeline snapshot unavailable: {html.escape(snapshot_error)})")
     else:
