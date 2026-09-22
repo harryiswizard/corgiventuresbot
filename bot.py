@@ -47,7 +47,7 @@ DEFAULT_CONFIG = {
     "app_base_url": "https://app.twenty.com",
     "timezone": "America/New_York",
     "notify_new": True,
-    "notify_removed": True,
+    "notify_removed": False,
     # A deal row exists from the moment someone clicks New in Twenty, so a
     # brand-new deal is held back until it stops being edited and has the
     # fields below filled in. That is what counts as "submitted".
@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
     # this many stage changes in one poll, send a single summary instead of a
     # card per deal.
     "burst_threshold": 10,
+    "burst_notify": False,
     "quiet_hours": [],
 }
 
@@ -625,8 +626,12 @@ def poll_once(cfg, tg, state, caches, seed=False):
         log(f"{len(pending)} events held by quiet hours")
         return 0
     if is_burst:
-        send(tg, burst_msg(cfg, stage_moves))
-        log(f"burst: {len(stage_moves)} stage changes summarised, not pinged individually")
+        # The flood is still suppressed and the events are still tagged in the
+        # history; it just goes out silently unless burst_notify is turned on.
+        if cfg.get("burst_notify"):
+            send(tg, burst_msg(cfg, stage_moves))
+        log(f"burst: {len(stage_moves)} stage changes swallowed "
+            f"(pipeline edit, not rep activity)")
 
     for kind, msg in pending:
         send(tg, msg)

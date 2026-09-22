@@ -95,9 +95,6 @@ def mock_cards(cfg):
         bot.stage_change_msg(cfg, won, "QUOTE_SENT", "CLOSED_WON", ctx),
         bot.stage_change_msg(cfg, submitted, "QUOTE_SENT", "QUOTE_RECEIVED", ctx),
         bot.company_card(cfg, ctx["companies"]["co-1"], appointed=True),
-        bot.removed_msg(cfg, {"name": "113 W Girard LLC", "pipeline": "ES_CARRIER",
-                              "stage": "QUOTE_SENT"}, ctx),
-        bot.burst_msg(cfg, [("stage", quoted, "QUOTE_RECEIVED")] * 130),
     ]
 
 
