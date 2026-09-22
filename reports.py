@@ -9,7 +9,7 @@ import html, json, os
 from datetime import datetime, timedelta
 
 import twenty_api as tw
-from bot import amount_value, fmt_money
+from bot import amount_value, appointments_line, fmt_money
 from stages import STAGE_ORDER, STAGE_EMOJI, stage_label, stage_rank
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -224,6 +224,9 @@ def report(cfg, period, caches=None):
         if not any(values.values()):
             lines.append("<i>Every Amount in Twenty is blank, so these read $0 "
                          "until one is filled in.</i>")
+
+    lines.append("")
+    lines.append(appointments_line(cfg))
 
     if not os.path.exists(EVENTS_FILE):
         lines.append("\n<i>No event history yet — movements are logged from the "

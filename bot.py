@@ -22,7 +22,7 @@ Credentials (env var first, so GitHub Actions secrets work, then local file):
 """
 import html, json, os, sys, time, traceback
 import urllib.error, urllib.parse, urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import twenty_api as tw
@@ -663,7 +663,44 @@ def cmd_pipeline(cfg, caches):
     lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
     if not any(totals.values()):
         lines.append("<i>Every Amount in Twenty is blank, so these read $0.</i>")
+
+    lines.append("")
+    lines.append(appointments_line(cfg))
     return "\n".join(lines)
+
+
+def appointments_line(cfg):
+    """Appointed agencies: the running total, and how many this week and month."""
+    try:
+        appointed = tw.find_many("companies", {"filter": "appointed[eq]:true"},
+                                 page_size=60, max_pages=40)
+    except tw.TwentyError as e:
+        return f"\U0001f91d <b>Appointments</b>: lookup failed ({html.escape(str(e))})"
+
+    recent = {7: 0, 30: 0}
+    cutoffs = {d: now_local(cfg) - timedelta(days=d) for d in recent}
+    if os.path.exists(EVENTS_FILE):
+        with open(EVENTS_FILE) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("kind") != "appointed":
+                    continue
+                ts = parse_iso(ev.get("ts"))
+                if not ts:
+                    continue
+                for d, cutoff in cutoffs.items():
+                    if ts >= cutoff:
+                        recent[d] += 1
+
+    out = f"\U0001f91d <b>Appointed agencies: {len(appointed)}</b>"
+    if any(recent.values()):
+        out += f"\n   {recent[7]} in the last 7 days \u00b7 {recent[30]} in the last 30"
+    elif not appointed:
+        out += "\n   <i>Nothing has the Appointed toggle switched on yet.</i>"
+    return out
 
 
 def handle_command(text, chat_id, cfg, tg, state, caches):
