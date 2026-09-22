@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import twenty_api as tw
+import stages as stages_module
 from stages import (STAGE_ORDER, STAGE_EMOJI, stage_label, pipeline_label,
                     stage_rank)
 
@@ -55,6 +56,10 @@ DEFAULT_CONFIG = {
     # The Appointed toggle on a company record.
     "notify_appointed": True,
     "notify_unappointed": True,
+    # Editing the stage options in Twenty rewrites every deal at once. Past
+    # this many stage changes in one poll, send a single summary instead of a
+    # card per deal.
+    "burst_threshold": 10,
     "quiet_hours": [],
 }
 
@@ -311,6 +316,24 @@ def new_deal_msg(cfg, opp, ctx):
     return card(cfg, opp, ctx, "New Deal", "Created At")
 
 
+def burst_msg(cfg, stage_moves):
+    """One message for a bulk change, instead of a card per deal.
+
+    Editing the stage options in Twenty rewrites every deal's stage at once;
+    130 cards is noise, and the shape of the change is what matters."""
+    by_stage = {}
+    for _, opp, old in stage_moves:
+        by_stage.setdefault(opp.get("stage"), []).append(opp)
+    lines = [f"\u26a0\ufe0f <b>BULK STAGE CHANGE \u2014 {len(stage_moves)} deals</b> \u26a0\ufe0f", "",
+             "This looks like a pipeline edit in Twenty rather than reps moving "
+             "deals, so here is the summary instead of one card each:", ""]
+    for st in sorted(by_stage, key=stage_rank):
+        lines.append(f"{STAGE_EMOJI.get(st, BULLET)} \u2192 {stage_label(st)}: "
+                     f"<b>{len(by_stage[st])}</b>")
+    lines += ["", f"\u23f0 {fmt_time(now_local(cfg).isoformat(), cfg)}"]
+    return "\n".join(lines)
+
+
 def removed_msg(cfg, prev, ctx):
     pipeline = prev.get("pipeline")
     return (f"\U0001f5d1 <b>{PIPELINE_SHORT.get(pipeline, pipeline_label(pipeline).upper())}"
@@ -443,7 +466,7 @@ def build_ctx(opps, caches):
     return {"members": members, "companies": companies}
 
 
-def record_event(kind, opp, old, new, ctx, cfg):
+def record_event(kind, opp, old, new, ctx, cfg, bulk=False):
     """Append to the event log that /daily, /weekly and /monthly read."""
     ev = {
         "ts": now_local(cfg).isoformat(timespec="seconds"),
@@ -460,6 +483,8 @@ def record_event(kind, opp, old, new, ctx, cfg):
         "amount_value": amount_value(opp.get("amount")),
         "currency": (opp.get("amount") or {}).get("currencyCode") or "USD",
     }
+    if bulk:
+        ev["bulk"] = True          # a pipeline edit, not a rep moving a deal
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(EVENTS_FILE, "a") as f:
         f.write(json.dumps(ev) + "\n")
@@ -547,7 +572,16 @@ def poll_once(cfg, tg, state, caches, seed=False):
         if prev.get("stage") != opp.get("stage"):
             changes.append(("stage", opp, prev.get("stage")))
 
+    # A stage nobody has seen before means the options were edited in the UI.
+    if any(c[1].get("stage") not in STAGE_ORDER for c in changes):
+        if stages_module.refresh():
+            log("stage options changed in Twenty; mappings refreshed")
+
     ctx = build_ctx([c[1] for c in changes], caches)
+    burst = int(cfg.get("burst_threshold") or 0)
+    stage_moves = [c for c in changes if c[0] == "stage"]
+    is_burst = bool(burst and len(stage_moves) > burst)
+
     pending = []
     for kind, opp, old in changes:
         stage = opp.get("stage")
@@ -555,8 +589,9 @@ def poll_once(cfg, tg, state, caches, seed=False):
             record_event("new", opp, None, stage, ctx, cfg)
             pending.append(("new", new_deal_msg(cfg, opp, ctx)))
         else:
-            record_event("stage", opp, old, stage, ctx, cfg)
-            pending.append(("stage", stage_change_msg(cfg, opp, old, stage, ctx)))
+            record_event("stage", opp, old, stage, ctx, cfg, bulk=is_burst)
+            if not is_burst:
+                pending.append(("stage", stage_change_msg(cfg, opp, old, stage, ctx)))
 
     announced_now = {c[1]["id"] for c in changes if c[0] == "new"}
     for oid, opp in live.items():
@@ -588,6 +623,10 @@ def poll_once(cfg, tg, state, caches, seed=False):
     if pending and in_quiet_hours(cfg):
         log(f"{len(pending)} events held by quiet hours")
         return 0
+    if is_burst:
+        send(tg, burst_msg(cfg, stage_moves))
+        log(f"burst: {len(stage_moves)} stage changes summarised, not pinged individually")
+
     for kind, msg in pending:
         send(tg, msg)
         log(f"sent {kind}: {msg.splitlines()[0][:70]}")
@@ -613,12 +652,13 @@ def cmd_pipeline(cfg, caches):
         s = o.get("stage")
         counts[s] = counts.get(s, 0) + 1
         totals[s] = totals.get(s, 0.0) + (amount_value(o.get("amount")) or 0.0)
-    order = [s for s in STAGE_ORDER if s in counts] + \
-            [s for s in counts if s not in STAGE_ORDER]
+    # Every stage is listed, empty ones included, so the shape of the pipeline
+    # is always visible.
+    order = list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER]
     lines = [f"<b>Pipeline now</b> — {len(opps)} deals"]
     for s in order:
         lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {stage_label(s)}: "
-                     f"<b>{counts[s]}</b> · {fmt_money(totals.get(s) or 0)}")
+                     f"<b>{counts.get(s, 0)}</b> · {fmt_money(totals.get(s) or 0)}")
     open_val = sum(v for k, v in totals.items() if k != "CLOSED_WON")
     lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
     if not any(totals.values()):

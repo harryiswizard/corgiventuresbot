@@ -127,7 +127,8 @@ def _names(evs, by_id):
 def report(cfg, period, caches=None):
     start, end, title = window(cfg, period)
     evs = load_events(cfg, start, end)
-    moves = [e for e in evs if e.get("kind") == "stage"]
+    moves = [e for e in evs if e.get("kind") == "stage" and not e.get("bulk")]
+    bulk = [e for e in evs if e.get("kind") == "stage" and e.get("bulk")]
     new = [e for e in evs if e.get("kind") == "new"]
     gone = [e for e in evs if e.get("kind") == "removed"]
     appointed = [e for e in evs if e.get("kind") == "appointed"]
@@ -158,6 +159,10 @@ def report(cfg, period, caches=None):
         lines.append(f"{OUTBOX} <b>Quotes sent: {len(sent_evs)} · "
                      f"{fmt_money(val, cur)}</b>"
                      + (f"\n   <i>{missing} with no amount set</i>" if missing else ""))
+
+    if bulk:
+        lines.append(f"\n\u26a0\ufe0f <i>{len(bulk)} deal(s) moved by a pipeline edit in "
+                     f"Twenty, not by a rep \u2014 left out of the counts below.</i>")
 
     if appointed:
         who = []
@@ -209,12 +214,11 @@ def report(cfg, period, caches=None):
     if snapshot_error:
         lines.append(f"\n(Pipeline snapshot unavailable: {html.escape(snapshot_error)})")
     else:
-        order = [s for s in STAGE_ORDER if s in counts] + \
-                [s for s in counts if s not in STAGE_ORDER]
+        order = list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER]
         lines.append(f"\n<b>Pipeline now</b> — {total} deals")
         for s in order:
             lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {stage_label(s)}: "
-                         f"<b>{counts[s]}</b> · {fmt_money(values.get(s) or 0)}")
+                         f"<b>{counts.get(s, 0)}</b> · {fmt_money(values.get(s) or 0)}")
         open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
         lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
         if not any(values.values()):

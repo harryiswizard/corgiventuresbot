@@ -17,7 +17,7 @@ import json, os, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(HERE, "state", "stages.json")
 OPPORTUNITY_OBJECT_ID = "f790657a-3427-473b-8926-50333080a2c1"
-CACHE_TTL = 6 * 3600
+CACHE_TTL = 15 * 60      # metadata edits in the UI should show up quickly
 
 FALLBACK_STAGES = [
     ("MEETING_BOOKED", "Meeting Booked"),
@@ -101,6 +101,30 @@ def pipeline_label(value):
     if not value:
         return "No pipeline"
     return PIPELINE_LABELS.get(value, value.replace("_", " ").title())
+
+
+def refresh():
+    """Re-read the options from Twenty now, ignoring the cache.
+
+    Called when a deal turns up on a stage we do not know about, which means
+    someone has edited the stage options in the UI."""
+    global _STAGES, _PIPELINES, STAGE_ORDER, STAGE_LABELS, PIPELINE_LABELS
+    live = _from_metadata()
+    if not live:
+        return False
+    _STAGES, _PIPELINES = live
+    STAGE_ORDER[:] = [v for v, _ in _STAGES]
+    STAGE_LABELS.clear()
+    STAGE_LABELS.update(dict(_STAGES))
+    PIPELINE_LABELS.clear()
+    PIPELINE_LABELS.update(dict(_PIPELINES))
+    try:
+        os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+        json.dump({"fetched": time.time(), "stages": _STAGES, "pipelines": _PIPELINES},
+                  open(CACHE, "w"), indent=1)
+    except OSError:
+        pass
+    return True
 
 
 def stage_rank(value):
