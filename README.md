@@ -52,16 +52,24 @@ leaving the pipeline:
 🔗 View Opportunity in Twenty
 ```
 
-### When a new deal counts as "submitted"
+### Drafts vs submitted
 
-Twenty creates the record the moment someone clicks New, so a brand-new deal is
-**held back** until it looks finished: every field in `new_deal_required_fields`
-(default: `name`) is filled, and nobody has edited it for
-`new_deal_settle_minutes` (default: 5). Only then does the card go out, carrying
-whatever stage it landed on. Stage moves made while it was still being built are
-folded into that one card rather than pinged separately, and a deal deleted
-before it settles is never announced at all. Stage changes on an already
-announced deal still ping immediately.
+Twenty creates the record the moment someone clicks New, so **nothing is
+announced until the deal is explicitly submitted**: the rep ticks the
+**Submitted** checkbox on the opportunity (field `submitted`, added
+2026-09-22). Opening the form, saving a half-filled draft and editing it over
+several days all leave the box unticked, so none of them ping. The card goes out
+on the first poll after it is ticked, carrying whatever stage the deal landed on.
+
+It is sent **once**. Un-ticking returns the deal to draft; ticking again is
+treated as a deliberate resubmit and sends a fresh card. Stage changes on an
+already submitted deal ping immediately as usual, and a deal that is deleted
+while still a draft is never announced at all.
+
+`require_submitted_flag: false` in `config.json` falls back to the older
+heuristic — announce once `new_deal_required_fields` are filled and the record
+has been idle for `new_deal_settle_minutes`. That fallback also kicks in
+automatically if the `submitted` field is missing from the workspace.
 
 Company, type, state, AE, BDR, source and close date are dropped from the card
 when Twenty has nothing in them. **Quote Sent and Closed Won always show an

@@ -48,9 +48,15 @@ DEFAULT_CONFIG = {
     "timezone": "America/New_York",
     "notify_new": True,
     "notify_removed": False,
-    # A deal row exists from the moment someone clicks New in Twenty, so a
-    # brand-new deal is held back until it stops being edited and has the
-    # fields below filled in. That is what counts as "submitted".
+    # A deal row exists from the moment someone clicks New in Twenty, so
+    # nothing is announced until the deal is explicitly submitted: the rep
+    # ticks the Submitted checkbox on the record. Everything before that is a
+    # draft as far as the bot is concerned.
+    "submitted_field": "submitted",
+    # Fallback for when the Submitted field is missing from the workspace:
+    # announce once the required fields are filled and the record has been
+    # idle this long. Set require_submitted_flag false to use it deliberately.
+    "require_submitted_flag": True,
     "new_deal_settle_minutes": 5,
     "new_deal_required_fields": ["name"],
     # The Appointed toggle on a company record.
@@ -517,10 +523,23 @@ def field_filled(opp, field):
 
 
 def is_submitted(opp, cfg):
-    """True once a new deal looks finished: every required field is filled and
-    nobody has touched it for `new_deal_settle_minutes`.
+    """Has this deal been submitted?
+
+    The rep ticking <b>Submitted</b> on the record is the trigger: opening the
+    New form, saving a half-filled draft and editing it later all leave the box
+    unticked, so none of them announce anything.
+
+    Only when the workspace has no Submitted field (or `require_submitted_flag`
+    is off) does it fall back to "required fields filled and idle for a while".
 
     Returns (ready, reason) so the log says what it is waiting on."""
+    field = cfg.get("submitted_field") or "submitted"
+    if cfg.get("require_submitted_flag"):
+        if field not in opp:
+            log(f"no '{field}' field on opportunities; falling back to the idle rule")
+        else:
+            return (True, "submitted") if opp.get(field) else (False, "draft, not submitted")
+
     for field in cfg.get("new_deal_required_fields") or []:
         if not field_filled(opp, field):
             return False, f"no {field} yet"
@@ -558,11 +577,14 @@ def poll_once(cfg, tg, state, caches, seed=False):
             state[oid] = {"stage": opp.get("stage"), "name": opp.get("name"),
                           "pipeline": opp.get("pipeline"),
                           "announced": bool(seed),
+                          "submitted": bool(opp.get(cfg.get("submitted_field")
+                                                    or "submitted")),
                           "first_seen": now_local(cfg).isoformat(timespec="seconds"),
                           "updatedAt": opp.get("updatedAt")}
             if not seed:
                 waiting += 1
             continue
+        field = cfg.get("submitted_field") or "submitted"
         if not prev.get("announced", True):
             ready, reason = is_submitted(opp, cfg)
             if ready and cfg.get("notify_new"):
@@ -570,6 +592,12 @@ def poll_once(cfg, tg, state, caches, seed=False):
             elif not ready:
                 waiting += 1
                 log(f"holding {deal_title(opp)}: {reason}")
+            continue
+        # Announced already: a deal that was un-submitted and submitted again
+        # is a deliberate resubmit, and only then does it go out a second time.
+        if prev.get("submitted") and not opp.get(field):
+            state[oid] = dict(prev, announced=False, submitted=False)
+            log(f"{deal_title(opp)} un-submitted; back to draft")
             continue
         if prev.get("stage") != opp.get("stage"):
             changes.append(("stage", opp, prev.get("stage")))
@@ -603,6 +631,8 @@ def poll_once(cfg, tg, state, caches, seed=False):
                       "owner": member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner"),
                       "announced": bool(seed or prev.get("announced", True)
                                         or oid in announced_now),
+                      "submitted": bool(opp.get(cfg.get("submitted_field")
+                                                or "submitted")),
                       "first_seen": prev.get("first_seen"),
                       "updatedAt": opp.get("updatedAt")}
 
