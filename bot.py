@@ -903,6 +903,12 @@ def drain_commands(cfg, tg, state, caches, wait=0):
             send(tg, "Unpinned. Pings go back to every listed chat.", chat)
             continue
         if cmd == "/here":
+            if str(chat).startswith("-") and "@" not in head:
+                # Bare /here in a group is ambiguous: every bot present receives
+                # it. Make the sender name the bot they mean.
+                send(tg, "In a group, address me directly: "
+                         f"<code>/here@{me_username(tg)}</code>", chat, thread)
+                continue
             if chat in allowed:
                 set_home(tg, chat, thread)
                 allowed = set(chat_ids(tg))
