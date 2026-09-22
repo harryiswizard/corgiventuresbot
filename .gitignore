@@ -1,0 +1,9 @@
+# Nothing with customer data in it belongs in the repo.
+state/
+backups/
+restore/*.json
+bot.log
+bot.err
+*.tmp
+__pycache__/
+*.pyc

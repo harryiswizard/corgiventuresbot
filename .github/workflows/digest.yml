@@ -1,0 +1,51 @@
+name: digest
+
+# Scheduled digests. Cron times are UTC; the report itself renders in the
+# timezone set in config.json (America/New_York).
+on:
+  schedule:
+    - cron: "0 22 * * 1-5"    # 18:00 ET weekdays -> daily
+    - cron: "0 13 * * 1"      # 09:00 ET Monday   -> weekly
+    - cron: "0 13 1 * *"      # 09:00 ET 1st      -> monthly
+  workflow_dispatch:
+    inputs:
+      period:
+        description: "daily | weekly | monthly"
+        default: daily
+
+permissions:
+  contents: read
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Read-only: the digest reads the event history the poller wrote.
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: twenty-bot-state-digest-${{ github.run_id }}
+          restore-keys: twenty-bot-state-
+
+      - name: Pick period
+        id: p
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 13 * * 1")   echo "period=weekly"  >> $GITHUB_OUTPUT ;;
+            "0 13 1 * *")   echo "period=monthly" >> $GITHUB_OUTPUT ;;
+            "0 22 * * 1-5") echo "period=daily"   >> $GITHUB_OUTPUT ;;
+            *) echo "period=${{ github.event.inputs.period || 'daily' }}" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Post digest
+        env:
+          TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 bot.py report ${{ steps.p.outputs.period }}

@@ -1,0 +1,51 @@
+name: poll
+
+# Every 5 minutes is GitHub's floor for scheduled workflows, and a busy queue
+# can add a few more. Each run pings anything that moved since the last one and
+# answers any commands sent in between.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# Never let two runs write state at once.
+concurrency:
+  group: twenty-bot-poll
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # State lives in the Actions cache, never in the repo: it holds deal
+      # names. The cache is not publicly downloadable, and a key per run with a
+      # prefix restore-key gives us "load the newest, then write a fresh one".
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: state
+          key: twenty-bot-state-${{ github.run_id }}
+          restore-keys: twenty-bot-state-
+
+      - name: Poll Twenty and answer commands
+        env:
+          TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python3 bot.py once
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state
+          key: twenty-bot-state-${{ github.run_id }}

@@ -1,0 +1,25 @@
+{
+  "_pipelines": "Twenty pipelines to watch. [] means every pipeline.",
+  "pipelines": [
+    "ES_CARRIER"
+  ],
+  "_include_unassigned": "Also watch deals with no pipeline set (usually mis-keyed E&S deals).",
+  "include_unassigned": true,
+  "_poll_seconds": "serve mode only; GitHub Actions is paced by its own cron.",
+  "poll_seconds": 60,
+  "app_base_url": "https://app.twenty.com",
+  "timezone": "America/New_York",
+  "notify_new": true,
+  "notify_removed": true,
+  "_quiet_hours": "[start, end] local hours to hold messages, e.g. [22, 7]. [] = always send.",
+  "quiet_hours": [],
+  "_new_deal_settle_minutes": "A deal row exists the moment someone clicks New in Twenty. Hold it until nobody has edited it for this many minutes.",
+  "new_deal_settle_minutes": 5,
+  "_new_deal_required_fields": "Fields that must be filled before a new deal counts as submitted: name, company, owner, amount.",
+  "new_deal_required_fields": [
+    "name"
+  ],
+  "_notify_appointed": "Ping when a rep flips the Appointed toggle on a company.",
+  "notify_appointed": true,
+  "notify_unappointed": true
+}
