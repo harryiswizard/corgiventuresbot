@@ -7,19 +7,25 @@ Bot: **@corgiventuresbot**
 
 ## Stages
 
-Mapped live from Twenty's metadata, so renaming a stage in the UI is picked up
-automatically. As of 2026-09-22 the E&S pipeline is:
+Mapped live from Twenty's metadata, so renaming or adding a stage in the UI is
+picked up on the next poll (and immediately if a deal turns up on a stage the
+bot does not recognise). The E&S pipeline is:
 
 | Twenty value | Label | |
 |---|---|---|
-| `MEETING_BOOKED` | Meeting Booked | 📅 |
-| `QUOTE_RECEIVED` | Quote Received | 📥 |
+| `QUOTE_RECEIVED` | Submission Received | 📥 |
 | `QUOTE_SENT` | Quote Sent | 📤 |
-| `PRODUCER_AGREEMENT_SIGNED` | Agreement Signed | ✍️ |
-| `CLOSED_WON` | Closed Won | 🏆 |
+| `CLOSED_WON` | Closed Won | 💰 |
 
 Watched pipelines are set in `config.json` (`ES_CARRIER` plus deals with no
 pipeline set, which are usually mis-keyed E&S deals).
+
+**Editing the stage options in the Twenty UI resets every deal that is not on
+the default option.** It happened twice while this was being built. The bot
+guards against the fallout — more than `burst_threshold` stage changes in one
+poll are summarised into a single message rather than a card per deal, and
+tagged in the history so the reports do not count them as rep activity — but
+snapshot the deals before touching those options.
 
 ## What it sends
 

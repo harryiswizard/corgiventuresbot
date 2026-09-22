@@ -6,10 +6,8 @@ stage or adding one in the UI is picked up on the next run) and cached to
 state/stages.json. The constants below are the fallback when the metadata call
 fails, and they mirror the live pipeline as of 2026-09-22:
 
-    MEETING_BOOKED  Meeting Booked
-    QUOTE_RECEIVED  Quote Received
+    QUOTE_RECEIVED  Submission Received
     QUOTE_SENT      Quote Sent
-    PRODUCER_AGREEMENT_SIGNED  Agreement Signed
     CLOSED_WON      Closed Won
 """
 import json, os, time
@@ -20,10 +18,8 @@ OPPORTUNITY_OBJECT_ID = "f790657a-3427-473b-8926-50333080a2c1"
 CACHE_TTL = 15 * 60      # metadata edits in the UI should show up quickly
 
 FALLBACK_STAGES = [
-    ("MEETING_BOOKED", "Meeting Booked"),
-    ("QUOTE_RECEIVED", "Quote Received"),
+    ("QUOTE_RECEIVED", "Submission Received"),
     ("QUOTE_SENT", "Quote Sent"),
-    ("PRODUCER_AGREEMENT_SIGNED", "Agreement Signed"),
     ("CLOSED_WON", "Closed Won"),
 ]
 FALLBACK_PIPELINES = [
@@ -33,12 +29,9 @@ FALLBACK_PIPELINES = [
 ]
 # One emoji per stage, so a glance at Telegram says where the deal got to.
 STAGE_EMOJI = {
-    "MEETING_BOOKED": "\U0001f3af",              # target
-    "QUOTE_RECEIVED": "\U0001f4e5",              # inbox tray
-    "QUOTE_SENT": "\U0001f4e4",                  # outbox tray
-    "PRODUCER_AGREEMENT_SIGNED": "✍️",  # writing hand
-    "CLOSED_WON": "\U0001f4b0",                  # money bag
-    "CLOSED_LOST": "❌",
+    "QUOTE_RECEIVED": "\U0001f4e5",   # inbox tray
+    "QUOTE_SENT": "\U0001f4e4",       # outbox tray
+    "CLOSED_WON": "\U0001f4b0",       # money bag
 }
 
 

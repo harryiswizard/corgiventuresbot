@@ -164,15 +164,15 @@ def report(cfg, period, caches=None):
         lines.append(f"\n\u26a0\ufe0f <i>{len(bulk)} deal(s) moved by a pipeline edit in "
                      f"Twenty, not by a rep \u2014 left out of the counts below.</i>")
 
-    if appointed:
-        who = []
-        for e in appointed[:MAX_NAMES]:
-            by = f" (by {html.escape(e['by'])})" if e.get("by") else ""
-            who.append(f"{html.escape(e.get('name') or '(unnamed)')}{by}")
-        extra = len(appointed) - len(who)
-        lines.append(f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>\n   "
-                     + "\n   ".join(who)
-                     + (f"\n   +{extra} more" if extra > 0 else ""))
+    who = []
+    for e in appointed[:MAX_NAMES]:
+        by = f" (by {html.escape(e['by'])})" if e.get("by") else ""
+        who.append(f"{html.escape(e.get('name') or '(unnamed)')}{by}")
+    extra = len(appointed) - len(who)
+    block = f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>"
+    if who:
+        block += "\n   " + "\n   ".join(who) + (f"\n   +{extra} more" if extra > 0 else "")
+    lines.append(block)
     if unappointed:
         lines.append(f"\u21a9 <b>Appointments removed: {len(unappointed)}</b>\n   "
                      + ", ".join(html.escape(e.get("name") or "(unnamed)")
