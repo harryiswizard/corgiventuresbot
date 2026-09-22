@@ -123,6 +123,25 @@ def now_local(cfg):
     return datetime.now(tz(cfg))
 
 
+def preflight():
+    """Say which credentials arrived, without printing any of them. Makes a
+    failed Actions run diagnosable from the log alone."""
+    have = {
+        "TWENTY_TOKEN": bool(os.environ.get("TWENTY_TOKEN")),
+        "TELEGRAM_BOT_TOKEN": bool(os.environ.get("TELEGRAM_BOT_TOKEN")),
+        "TELEGRAM_CHAT_ID": bool(os.environ.get("TELEGRAM_CHAT_ID")),
+    }
+    if any(have.values()) or os.environ.get("CI"):
+        log("credentials: " + ", ".join(
+            f"{k}={'set' if v else 'MISSING'}" for k, v in have.items()))
+        missing = [k for k, v in have.items() if not v]
+        if missing:
+            log("Add the missing secret(s) under Settings -> Secrets and "
+                "variables -> Actions -> Repository secrets. Names are "
+                "case-sensitive, and repository secrets are not the same as "
+                "variables or environment secrets.")
+
+
 def tg_config():
     env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if env_token:
@@ -130,7 +149,10 @@ def tg_config():
                  (os.environ.get("TELEGRAM_CHAT_ID") or "").split(",") if c.strip()]
         return {"bot_token": env_token.strip(),
                 "chat_id": chats[0] if chats else None,
-                "allowed_chats": chats[1:]}
+                "allowed_chats": chats[1:],
+                "home": ({"chat_id": chats[0],
+                          "thread_id": int(os.environ["TELEGRAM_THREAD_ID"])}
+                         if chats and os.environ.get("TELEGRAM_THREAD_ID") else None)}
     cfg = load_json(TG_FILE, None)
     if not cfg or not cfg.get("bot_token"):
         sys.exit(f"No Telegram credentials. Set TELEGRAM_BOT_TOKEN, or create {TG_FILE} "
@@ -178,11 +200,48 @@ def tg_api(method, tg, params=None, timeout=60, attempts=3):
     return None
 
 
-def send(tg, text, chat_id=None):
-    for cid in ([chat_id] if chat_id else chat_ids(tg)):
-        tg_api("sendMessage", tg, {"chat_id": cid, "text": text,
-                                   "parse_mode": "HTML",
-                                   "disable_web_page_preview": "true"})
+def home(tg):
+    """(chat_id, thread_id) the bot is pinned to with /here, or None."""
+    h = tg.get("home") or {}
+    return (str(h["chat_id"]), h.get("thread_id")) if h.get("chat_id") else None
+
+
+def targets(tg):
+    """Where pings go: the pinned chat/topic if set, else every listed chat."""
+    return [home(tg)] if home(tg) else [(c, None) for c in chat_ids(tg)]
+
+
+def set_home(tg, chat_id, thread_id):
+    """Pin pings to one chat and, in a forum group, one topic."""
+    data = load_json(TG_FILE, {})
+    h = {"chat_id": str(chat_id)}
+    if thread_id:
+        h["thread_id"] = int(thread_id)
+    data["home"] = h
+    allowed = [str(c) for c in data.get("allowed_chats") or []]
+    if str(chat_id) not in allowed and str(chat_id) != str(data.get("chat_id")):
+        allowed.append(str(chat_id))
+    data["allowed_chats"] = allowed
+    save_json(TG_FILE, data)
+    os.chmod(TG_FILE, 0o600)
+    tg["home"], tg["allowed_chats"] = h, allowed
+
+
+def wrong_topic(tg, chat_id, thread_id):
+    """True for a message in the pinned group but outside the pinned topic."""
+    h = home(tg)
+    if not h or not h[1] or str(chat_id) != h[0]:
+        return False
+    return str(thread_id or "") != str(h[1])
+
+
+def send(tg, text, chat_id=None, thread_id=None):
+    for cid, tid in ([(chat_id, thread_id)] if chat_id else targets(tg)):
+        params = {"chat_id": cid, "text": text, "parse_mode": "HTML",
+                  "disable_web_page_preview": "true"}
+        if tid:
+            params["message_thread_id"] = tid
+        tg_api("sendMessage", tg, params)
         time.sleep(0.35)
 
 
@@ -743,27 +802,29 @@ def appointments_line(cfg):
     return out
 
 
-def handle_command(text, chat_id, cfg, tg, state, caches):
+def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
     import reports
     cmd = text.strip().split()[0].lower().split("@")[0]
     try:
         if cmd in ("/start", "/help"):
-            send(tg, HELP, chat_id)
+            send(tg, HELP, chat_id, thread_id)
         elif cmd in ("/daily", "/today"):
-            send(tg, reports.report(cfg, "daily", caches), chat_id)
+            send(tg, reports.report(cfg, "daily", caches), chat_id, thread_id)
         elif cmd in ("/weekly", "/week"):
-            send(tg, reports.report(cfg, "weekly", caches), chat_id)
+            send(tg, reports.report(cfg, "weekly", caches), chat_id, thread_id)
         elif cmd in ("/monthly", "/month"):
-            send(tg, reports.report(cfg, "monthly", caches), chat_id)
+            send(tg, reports.report(cfg, "monthly", caches), chat_id, thread_id)
         elif cmd == "/pipeline":
-            send(tg, cmd_pipeline(cfg, caches), chat_id)
+            send(tg, cmd_pipeline(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
-            send(tg, f"Chat id: <code>{chat_id}</code>", chat_id)
+            send(tg, f"Chat id: <code>{chat_id}</code>"
+                 + (f" · topic <code>{thread_id}</code>" if thread_id else ""),
+                 chat_id, thread_id)
         else:
             return
         log(f"answered {cmd} for {chat_id}")
     except tw.TwentyError as e:
-        send(tg, f"Twenty API error: {html.escape(str(e))}", chat_id)
+        send(tg, f"Twenty API error: {html.escape(str(e))}", chat_id, thread_id)
 
 
 def drain_commands(cfg, tg, state, caches, wait=0):
@@ -777,20 +838,63 @@ def drain_commands(cfg, tg, state, caches, wait=0):
         msg = u.get("message") or u.get("channel_post") or {}
         text = msg.get("text") or ""
         chat = str((msg.get("chat") or {}).get("id") or "")
+        thread = msg.get("message_thread_id")  # set in forum-group topics
         if not text.startswith("/"):
+            continue
+        cmd = text.split()[0].lower().split("@")[0]
+        owner = chat == str(tg.get("chat_id"))
+        if cmd == "/pin" and owner:
+            # Owner approves a /here request: /pin <chat_id> [topic_id]
+            parts = text.split()
+            if len(parts) < 2:
+                send(tg, "Usage: <code>/pin &lt;chat_id&gt; [topic_id]</code>", chat)
+                continue
+            set_home(tg, parts[1], parts[2] if len(parts) > 2 else None)
+            allowed = set(chat_ids(tg))
+            send(tg, "\U0001F4CC Pinned. Deal pings now post only in that "
+                 + ("topic." if len(parts) > 2 else "chat."), chat)
+            send(tg, "\U0001F4CC Deal pings will post here from now on.",
+                 parts[1], parts[2] if len(parts) > 2 else None)
+            continue
+        if cmd == "/unpin" and owner:
+            data = load_json(TG_FILE, {})
+            data.pop("home", None)
+            save_json(TG_FILE, data)
+            os.chmod(TG_FILE, 0o600)
+            tg.pop("home", None)
+            send(tg, "Unpinned. Pings go back to every listed chat.", chat)
+            continue
+        if cmd == "/here":
+            if chat in allowed:
+                set_home(tg, chat, thread)
+                allowed = set(chat_ids(tg))
+                send(tg, "\U0001F4CC Pinned to this " + ("topic" if thread else "chat")
+                     + ". Deal pings post here, and I'll ignore other topics.",
+                     chat, thread)
+            else:
+                # Unknown group: ask the owner rather than leak deals to it.
+                title = (msg.get("chat") or {}).get("title") or chat
+                send(tg, f"\U0001F512 <b>{html.escape(title)}</b> asked for deal pings"
+                     + (f" in topic {thread}" if thread else "")
+                     + f".\nReply <code>/pin {chat}" + (f" {thread}" if thread else "")
+                     + "</code> to approve.")
+                send(tg, "Asked the owner to approve this topic.", chat, thread)
+            continue
+        if wrong_topic(tg, chat, thread):
             continue
         if allowed and chat not in allowed:
             log(f"ignoring command from unlisted chat {chat}")
             tg_api("sendMessage", tg, {"chat_id": chat,
                                        "text": f"This chat ({chat}) isn't on the allow list."})
             continue
-        handle_command(text, chat, cfg, tg, state, caches)
+        handle_command(text, chat, cfg, tg, state, caches, thread)
     save_json(OFFSET_FILE, {"offset": offset})
 
 
 # ---------------------------------------------------------------------- main
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "serve"
+    preflight()
     cfg = load_config()
     tg = tg_config()
     state = load_json(STATE_FILE, {})
