@@ -10,7 +10,9 @@ Stages watched, in order:
 
 Modes:
     python3 bot.py once              one poll + answer queued commands, then exit
-                                     (this is what GitHub Actions runs)
+    python3 bot.py loop              poll every `poll_seconds` for RUN_SECONDS,
+                                     then exit (this is what GitHub Actions runs:
+                                     one run per cron tick, polling throughout)
     python3 bot.py serve             resident loop, instant replies
     python3 bot.py report daily      post a digest for a period and exit
     python3 bot.py seed              record current stages without notifying
@@ -161,6 +163,11 @@ def tg_api(method, tg, params=None, timeout=60, attempts=3):
             if e.code == 429 and attempt < attempts - 1:
                 time.sleep(2 ** attempt)
                 continue
+            if e.code == 409:
+                # Another copy of the bot is holding the long poll. Harmless in
+                # itself, but it means two instances are running.
+                log("telegram getUpdates: another bot instance is polling")
+                return None
             log(f"telegram {method}: {e.code} {body}")
             return None
         except Exception as e:
@@ -796,6 +803,40 @@ def main():
     if mode == "report":
         import reports
         send(tg, reports.report(cfg, sys.argv[2] if len(sys.argv) > 2 else "daily", caches))
+        return
+
+    if mode == "loop":
+        # GitHub Actions cannot schedule more often than every 5 minutes, but a
+        # single run can keep polling while it is alive. One run per cron tick
+        # polls every `poll_seconds` for RUN_SECONDS and then exits, which gets
+        # the delay down from ~5 minutes to the poll interval.
+        budget = int(os.environ.get("RUN_SECONDS") or 240)
+        deadline = time.time() + budget
+        seed = not state
+        polls = 0
+        log(f"loop: {budget}s budget, polling every {cfg['poll_seconds']}s")
+        while time.time() < deadline:
+            started = time.time()
+            try:
+                poll_once(cfg, tg, state, caches, seed=seed)
+                seed = False
+                polls += 1
+            except tw.TwentyError as e:
+                log(f"poll failed: {e}")
+            except Exception:
+                log("poll crashed:\n" + traceback.format_exc())
+            left = deadline - time.time()
+            if left <= 0:
+                break
+            # The Telegram long poll doubles as the wait between polls.
+            wait = max(1, min(int(cfg["poll_seconds"] - (time.time() - started)),
+                              int(left)))
+            try:
+                drain_commands(cfg, tg, state, caches, wait=wait)
+            except Exception:
+                log("command loop error:\n" + traceback.format_exc())
+                time.sleep(min(5, max(1, left)))
+        log(f"loop done: {polls} polls")
         return
 
     if mode == "once":

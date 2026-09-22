@@ -1,8 +1,9 @@
 name: poll
 
-# Every 5 minutes is GitHub's floor for scheduled workflows, and a busy queue
-# can add a few more. Each run pings anything that moved since the last one and
-# answers any commands sent in between.
+# GitHub cannot schedule more often than every 5 minutes, so instead of one
+# poll per tick, each run *stays alive* for the whole gap and polls every
+# `poll_seconds` (15s) throughout. Delay is the poll interval, not the cron.
+# Public repo, so the minutes are free.
 on:
   schedule:
     - cron: "*/5 * * * *"
@@ -19,6 +20,7 @@ permissions:
 jobs:
   poll:
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
 
@@ -41,7 +43,10 @@ jobs:
           TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python3 bot.py once
+          # Just under the 5-minute cron, leaving room for checkout and setup
+          # so two runs never overlap.
+          RUN_SECONDS: "250"
+        run: python3 bot.py loop
 
       - name: Save state
         if: always()
