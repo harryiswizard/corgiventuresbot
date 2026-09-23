@@ -265,6 +265,24 @@ def wrong_topic(tg, chat_id, thread_id):
     return str(thread_id or "") != str(h[1])
 
 
+TG_LIMIT = 3900          # Telegram rejects anything over 4096 characters
+
+
+def send_long(tg, text, chat_id=None, thread_id=None):
+    """Split a long message on line boundaries rather than losing the tail."""
+    if len(text) <= TG_LIMIT:
+        send(tg, text, chat_id, thread_id)
+        return
+    chunk = ""
+    for line in text.split("\n"):
+        if len(chunk) + len(line) + 1 > TG_LIMIT:
+            send(tg, chunk, chat_id, thread_id)
+            chunk = ""
+        chunk += (line + "\n")
+    if chunk.strip():
+        send(tg, chunk, chat_id, thread_id)
+
+
 def send(tg, text, chat_id=None, thread_id=None):
     for cid, tid in ([(chat_id, thread_id)] if chat_id else targets(tg)):
         params = {"chat_id": cid, "text": text, "parse_mode": "HTML",
@@ -740,6 +758,17 @@ def poll_once(cfg, tg, state, caches, seed=False):
                          prev.get("stage"), None, ctx, cfg)
             pending.append(("removed", removed_msg(cfg, prev, ctx)))
 
+    # Roster log: refreshed whenever something changed, and at least every
+    # few minutes so the file is never stale.
+    global _last_log
+    if changes or time.time() - _last_log > 300:
+        try:
+            import deal_log
+            deal_log.write(deal_log.collect(list(live.values())))
+            _last_log = time.time()
+        except Exception:
+            log("deal log failed:\n" + traceback.format_exc())
+
     save_json(STATE_FILE, state)
     if seed:
         log(f"seeded {len(state)} deals; notifying from the next poll")
@@ -767,6 +796,7 @@ def poll_once(cfg, tg, state, caches, seed=False):
 
 # ------------------------------------------------------------------ commands
 COMMANDS = [
+    ("deals", "Every deal and the stage it sits on"),
     ("daily", "Today's stage changes and closed business"),
     ("weekly", "Last 7 days"),
     ("monthly", "Last 30 days"),
@@ -832,6 +862,41 @@ def appointments_line(cfg):
     return out
 
 
+def cmd_deals(cfg, caches, arg=""):
+    """Every deal grouped by stage, by company. Long lists are trimmed."""
+    import deal_log
+    opps = [o for o in tw.opportunities() if watched(o, cfg)]
+    rows = deal_log.collect(opps)
+    deal_log.write(rows)
+
+    by_stage = {}
+    for r in rows:
+        by_stage.setdefault(r["stage"], []).append(r)
+    order = [stage_label(v) for v in STAGE_ORDER]
+    order += [s for s in by_stage if s not in order]
+
+    wanted = arg.strip().lower()
+    if wanted:
+        order = [s for s in order if wanted in s.lower()] or order
+
+    lines = [f"<b>Deals by stage</b> \u2014 {len(rows)} total"]
+    for st in order:
+        group = by_stage.get(st, [])
+        lines.append(f"\n{STAGE_EMOJI.get(next((v for v in STAGE_ORDER if stage_label(v) == st), ''), BULLET)}"
+                     f" <b>{st}: {len(group)}</b>")
+        if not group:
+            continue
+        shown = group if (wanted or len(group) <= 12) else group[:12]
+        for r in shown[:40]:
+            who = r["company"] or r["deal"]
+            amt = f" \u00b7 ${float(r['amount']):,.0f}" if r["amount"] else ""
+            lines.append(f"   {html.escape(who[:44])} \u2014 {html.escape(r['owner'])}{amt}")
+        if len(group) > len(shown[:40]):
+            lines.append(f"   \u2026 and {len(group) - len(shown[:40])} more "
+                         f"(/deals {st.split()[0].lower()} for the full list)")
+    return "\n".join(lines)
+
+
 def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
     import reports
     cmd = text.strip().split()[0].lower().split("@")[0]
@@ -844,6 +909,9 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send(tg, reports.report(cfg, "weekly", caches), chat_id, thread_id)
         elif cmd in ("/monthly", "/month"):
             send(tg, reports.report(cfg, "monthly", caches), chat_id, thread_id)
+        elif cmd == "/deals":
+            send_long(tg, cmd_deals(cfg, caches, " ".join(text.strip().split()[1:])),
+                      chat_id, thread_id)
         elif cmd == "/pipeline":
             send(tg, cmd_pipeline(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
