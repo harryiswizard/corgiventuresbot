@@ -42,6 +42,7 @@ CONFIG_FILE = os.path.join(HERE, "config.json")
 TG_FILE = os.path.expanduser("~/.telegram_twenty_bot")
 
 BULLET = "•"
+_last_log = 0.0          # when the roster log was last written
 DEFAULT_CONFIG = {
     "pipelines": ["ES_CARRIER"],
     "include_unassigned": True,
