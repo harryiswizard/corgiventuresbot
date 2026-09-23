@@ -5,8 +5,8 @@ name: poll
 # `poll_seconds` (15s) throughout. Delay is the poll interval, not the cron.
 # Public repo, so the minutes are free.
 on:
-  schedule:
-    - cron: "*/5 * * * *"
+  # Schedule off 2026-09-23: the Mac launchd agent is the live poller, and two
+  # instances steal each other's Telegram commands (409 on getUpdates).
   workflow_dispatch:
 
 # Never let two runs write state at once.
