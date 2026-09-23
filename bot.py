@@ -993,7 +993,8 @@ def drain_commands(cfg, tg, state, caches, wait=0):
                      + "</code> to approve.")
                 send(tg, "Asked the owner to approve this topic.", chat, thread)
             continue
-        if off_home(tg, chat, thread):
+        # The owner's DM is private, so it can always read reports.
+        if off_home(tg, chat, thread) and not owner:
             log(f"ignoring {cmd} from outside the pinned topic ({chat}/{thread})")
             continue
         if allowed and chat not in allowed:
