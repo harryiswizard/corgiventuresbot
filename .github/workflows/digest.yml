@@ -4,7 +4,6 @@ name: digest
 # timezone set in config.json (America/New_York).
 on:
   schedule:
-    - cron: "0 22 * * 1-5"    # 18:00 ET weekdays -> daily
     - cron: "0 13 * * 1"      # 09:00 ET Monday   -> weekly
     - cron: "0 13 1 * *"      # 09:00 ET 1st      -> monthly
   workflow_dispatch:
@@ -39,7 +38,6 @@ jobs:
           case "${{ github.event.schedule }}" in
             "0 13 * * 1")   echo "period=weekly"  >> $GITHUB_OUTPUT ;;
             "0 13 1 * *")   echo "period=monthly" >> $GITHUB_OUTPUT ;;
-            "0 22 * * 1-5") echo "period=daily"   >> $GITHUB_OUTPUT ;;
             *) echo "period=${{ github.event.inputs.period || 'daily' }}" >> $GITHUB_OUTPUT ;;
           esac
 
