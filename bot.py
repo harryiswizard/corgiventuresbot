@@ -143,6 +143,18 @@ def preflight():
                 "variables or environment secrets.")
 
 
+def env_home(chats):
+    """Pinned topic from the environment. TELEGRAM_HOME is "chat_id:thread_id"
+    (lets the owner DM stay chats[0]); TELEGRAM_THREAD_ID alone pins chats[0]."""
+    spec = os.environ.get("TELEGRAM_HOME", "").strip()
+    if spec:
+        chat, _, thread = spec.partition(":")
+        return {"chat_id": chat, "thread_id": int(thread) if thread else None}
+    if chats and os.environ.get("TELEGRAM_THREAD_ID"):
+        return {"chat_id": chats[0], "thread_id": int(os.environ["TELEGRAM_THREAD_ID"])}
+    return None
+
+
 def tg_config():
     env_token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if env_token:
@@ -151,9 +163,7 @@ def tg_config():
         return {"bot_token": env_token.strip(),
                 "chat_id": chats[0] if chats else None,
                 "allowed_chats": chats[1:],
-                "home": ({"chat_id": chats[0],
-                          "thread_id": int(os.environ["TELEGRAM_THREAD_ID"])}
-                         if chats and os.environ.get("TELEGRAM_THREAD_ID") else None)}
+                "home": env_home(chats)}
     cfg = load_json(TG_FILE, None)
     if not cfg or not cfg.get("bot_token"):
         sys.exit(f"No Telegram credentials. Set TELEGRAM_BOT_TOKEN, or create {TG_FILE} "

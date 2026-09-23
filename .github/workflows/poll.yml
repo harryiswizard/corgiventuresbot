@@ -1,26 +1,29 @@
 name: poll
 
-# GitHub cannot schedule more often than every 5 minutes, so instead of one
-# poll per tick, each run *stays alive* for the whole gap and polls every
-# `poll_seconds` (15s) throughout. Delay is the poll interval, not the cron.
-# Public repo, so the minutes are free.
+# The bot, always on. One run polls Twenty every `poll_seconds` and answers
+# Telegram commands for ~5h45m (GitHub's job cap is 6h), saves state, then
+# dispatches its own successor. watchdog.yml restarts the chain if it breaks.
+# Only one run may hold Telegram's getUpdates at a time, so a new run cancels
+# the old one; state is on disk after every poll, and the save step runs even
+# on cancel. Public repo, so the minutes are free.
 on:
-  # Schedule off 2026-09-23: the Mac launchd agent is the live poller, and two
-  # instances steal each other's Telegram commands (409 on getUpdates).
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["*.py", "config.json", ".github/workflows/poll.yml"]
 
-# Never let two runs write state at once.
 concurrency:
   group: twenty-bot-poll
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  actions: write          # to dispatch the next run
 
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 
@@ -35,17 +38,27 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: state
-          key: twenty-bot-state-${{ github.run_id }}
-          restore-keys: twenty-bot-state-
+          key: twenty-bot-state-v2-${{ github.run_id }}
+          restore-keys: twenty-bot-state-v2-
 
-      - name: Poll Twenty and answer commands
+      # One-off handoff from the Mac: an encrypted copy of its state, used
+      # only when the cache has nothing newer. Removed once the cache is warm.
+      - name: Import handoff state
+        if: hashFiles('state/state.json') == '' && hashFiles('handoff.enc') != ''
+        env:
+          TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:TWENTY_TOKEN \
+            -in handoff.enc | tar xz && echo "imported Mac state" || echo "handoff not usable; seeding fresh"
+
+      - name: Run the bot
         env:
           TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          # Just under the 5-minute cron, leaving room for checkout and setup
-          # so two runs never overlap.
-          RUN_SECONDS: "250"
+          # Owner DM first, then the group; pings go to the pinned topic.
+          TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
+          TELEGRAM_HOME: "-1004435246978:7040"
+          RUN_SECONDS: "20700"
         run: python3 bot.py loop
 
       - name: Save state
@@ -53,4 +66,11 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: state
-          key: twenty-bot-state-${{ github.run_id }}
+          key: twenty-bot-state-v2-${{ github.run_id }}
+
+      # Last on purpose: the successor cancels whatever is still running.
+      - name: Start the next run
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run poll.yml --repo ${{ github.repository }} --ref main

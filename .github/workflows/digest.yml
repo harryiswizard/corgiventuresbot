@@ -30,7 +30,7 @@ jobs:
         with:
           path: state
           key: twenty-bot-state-digest-${{ github.run_id }}
-          restore-keys: twenty-bot-state-
+          restore-keys: twenty-bot-state-v2-
 
       - name: Pick period
         id: p
@@ -45,5 +45,6 @@ jobs:
         env:
           TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
+          TELEGRAM_HOME: "-1004435246978:7040"
         run: python3 bot.py report ${{ steps.p.outputs.period }}
