@@ -9,7 +9,7 @@ import html, json, os
 from datetime import datetime, timedelta
 
 import twenty_api as tw
-from bot import amount_value, appointments_line, fmt_money
+from bot import amount_value, appointments_line, fmt_money, leaderboard
 from stages import STAGE_ORDER, STAGE_EMOJI, stage_label, stage_rank
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -161,6 +161,15 @@ def report(cfg, period, caches=None):
         lines.append(f"{OUTBOX} <b>Quotes sent: {len(sent_evs)} · "
                      f"{fmt_money(val, cur)}</b>"
                      )
+        # Rep leaderboard. Events logged before `rep` existed fall back to
+        # the owner recorded at the time.
+        tally, rep_value = {}, {}
+        for e in sent_evs:
+            rep = e.get("rep") or e.get("owner") or "Unassigned"
+            tally[rep] = tally.get(rep, 0) + 1
+            v, _ = _value_of([e], by_id)
+            rep_value[rep] = rep_value.get(rep, 0.0) + v
+        lines += leaderboard(tally, rep_value)
 
     if bulk:
         lines.append(f"\n<i>{len(bulk)} deal(s) moved by a pipeline edit in Twenty, "

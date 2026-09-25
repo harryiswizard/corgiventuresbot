@@ -370,6 +370,34 @@ def member(ctx, member_id):
     return (ctx or {}).get("members", {}).get(member_id)
 
 
+def rep_of(ctx, opp):
+    """The rep a deal is credited to: its owner, else whoever created it.
+
+    Not `updatedBy` - bulk tidy-ups in Twenty make that the admin, not the rep
+    who actually sent the quote."""
+    made = opp.get("createdBy") or {}
+    return (member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner")
+            or (made.get("name") if made.get("source") == "MANUAL" else None)
+            or "Unassigned")
+
+
+MEDALS = ["\U0001f947", "\U0001f948", "\U0001f949"]
+
+
+def leaderboard(tally, values=None, limit=10):
+    """Ranked rep lines: most quotes first, value breaks a tie."""
+    values = values or {}
+    ranked = sorted(tally, key=lambda k: (-tally[k], -(values.get(k) or 0), k))
+    out = []
+    for i, rep in enumerate(ranked[:limit]):
+        badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+        money_part = f" \u00b7 {fmt_money(values[rep])}" if values.get(rep) else ""
+        out.append(f"   {badge} {esc(rep)} \u2014 <b>{tally[rep]}</b>{money_part}")
+    if len(ranked) > limit:
+        out.append(f"   \u2026 and {len(ranked) - limit} more")
+    return out
+
+
 def arrow(old, new):
     """Forward through the funnel, or back."""
     return "\u2192" if stage_rank(new) >= stage_rank(old) else "\u21a9"
@@ -417,6 +445,8 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
         lines.append(f"⏰ Updated: {when}")
 
     people = []
+    if stage == "QUOTE_SENT":
+        people.append(f"\U0001f4e4 Quote sent by: <b>{esc(rep_of(ctx, opp))}</b>")
     ae = member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner")
     if ae:
         people.append(f"\U0001f468‍\U0001f4bc AE: {esc(ae)}")
@@ -611,6 +641,7 @@ def record_event(kind, opp, old, new, ctx, cfg, bulk=False):
         "to": new,
         "owner": member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner"),
         "bdr": member(ctx, opp.get("bdrId")),
+        "rep": rep_of(ctx, opp),
         "company": company_field(opp, ctx, "name"),
         "amount": money(opp.get("amount")),
         "amount_value": amount_value(opp.get("amount")),
@@ -812,6 +843,7 @@ COMMANDS = [
     ("weekly", "Last 7 days"),
     ("monthly", "Last 30 days"),
     ("pipeline", "Deal counts and value by stage now"),
+    ("quotes", "Who has sent quotes: rep leaderboard"),
 ]
 HELP = ("<b>Twenty deal bot</b>\n"
         "I ping this chat on every E&amp;S deal stage change.\n\n"
@@ -873,6 +905,39 @@ def appointments_line(cfg):
     return out
 
 
+def cmd_quotes(cfg, caches):
+    """Every deal that has had a quote sent (Quote Sent or further on), by rep."""
+    sent = stage_rank("QUOTE_SENT")
+    opps = [o for o in tw.opportunities()
+            if watched(o, cfg) and o.get("stage") in STAGE_ORDER
+            and stage_rank(o.get("stage")) >= sent]
+    ctx = build_ctx(opps, caches)
+    by_rep, values = {}, {}
+    for o in opps:
+        rep = rep_of(ctx, o)
+        by_rep.setdefault(rep, []).append(o)
+        values[rep] = values.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
+    if not opps:
+        return "\U0001f4e4 <b>Quotes sent</b>\n\nNo quotes sent yet."
+
+    total = sum(values.values())
+    lines = [f"\U0001f4e4 <b>Quotes sent \u2014 {len(opps)}</b>"
+             + (f" \u00b7 {fmt_money(total)}" if total else ""),
+             "", "\U0001f3c6 <b>Leaderboard</b>"]
+    lines += leaderboard({k: len(v) for k, v in by_rep.items()}, values, limit=20)
+
+    ranked = sorted(by_rep, key=lambda k: (-len(by_rep[k]), -values[k], k))
+    for rep in ranked:
+        lines.append(f"\n<b>{esc(rep)}</b> ({len(by_rep[rep])})")
+        for o in sorted(by_rep[rep], key=lambda o: o.get("updatedAt") or "", reverse=True):
+            who = company_field(o, ctx, "name") or deal_title(o, ctx)
+            won = " \U0001f3c6" if o.get("stage") == "CLOSED_WON" else ""
+            amt = amount_value(o.get("amount"))
+            amt = f" \u00b7 {fmt_money(amt)}" if amt else ""
+            lines.append(f"   {esc(who[:44])}{amt}{won}")
+    return "\n".join(lines)
+
+
 def cmd_deals(cfg, caches, arg=""):
     """Every deal grouped by stage, by company. Long lists are trimmed."""
     import deal_log
@@ -925,6 +990,8 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
                       chat_id, thread_id)
         elif cmd == "/pipeline":
             send(tg, cmd_pipeline(cfg, caches), chat_id, thread_id)
+        elif cmd in ("/quotes", "/leaderboard"):
+            send_long(tg, cmd_quotes(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
             send(tg, f"Chat id: <code>{chat_id}</code>"
                  + (f" · topic <code>{thread_id}</code>" if thread_id else ""),

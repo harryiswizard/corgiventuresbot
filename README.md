@@ -84,6 +84,7 @@ is the number being reported on.
 | `/weekly` | Last 7 days, plus per-owner and per-day breakdowns |
 | `/monthly` | Last 30 days, same shape |
 | `/pipeline` | Deal counts and value by stage right now |
+| `/quotes` | Every deal a quote has gone out on, by rep, with a leaderboard |
 
 (`/chatid` also works, undocumented, for adding the bot to a group.)
 
