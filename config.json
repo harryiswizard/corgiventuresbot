@@ -21,8 +21,9 @@
   ],
   "_notify_appointed": "Ping when a rep flips the Appointed toggle on a company.",
   "notify_appointed": true,
-  "notify_unappointed": true,
+  "notify_unappointed": false,
   "_notify_removed": "Card when a deal is deleted or leaves the pipeline. Off: Harry does not want these.",
   "_burst_notify": "Off: a bulk stage change is swallowed silently (still logged and tagged in history), rather than announced.",
-  "burst_notify": false
+  "burst_notify": false,
+  "_notify_unappointed": "Off: Harry does not want Appointed -> not appointed pings."
 }
