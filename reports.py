@@ -6,7 +6,7 @@ Money is read live from Twenty rather than from the event, because an amount is
 usually typed in after the deal has been moved.
 """
 import html, json, os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import twenty_api as tw
 from bot import amount_value, appointments_line, fmt_money, leaderboard
@@ -126,6 +126,63 @@ def _value_of(evs, by_id):
     return total, currency
 
 
+def _reached(entry, stage):
+    """True when a timeline entry is a deal landing on `stage`."""
+    props = entry.get("properties") or {}
+    if isinstance(props, str):
+        try:
+            props = json.loads(props)
+        except ValueError:
+            return False
+    diff = (props.get("diff") or {}).get("stage") or {}
+    if diff.get("after") == stage and diff.get("before") != stage:
+        return True
+    return (props.get("after") or {}).get("stage") == stage
+
+
+def quotes_sent(cfg, start, end, by_id):
+    """[(opp, when)] for every deal that moved onto Quote Sent in the window.
+
+    Read from Twenty's timeline, not the bot's event log: most quotes are
+    keyed straight in at Quote Sent (a new-deal card, not a stage move), and
+    deals nobody ticked "submitted" never reach the event log at all."""
+    first = {}
+    since = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    for t in tw.opportunity_timeline(since):
+        oid = t.get("targetOpportunityId")
+        if oid not in by_id or not _reached(t, "QUOTE_SENT"):
+            continue
+        try:
+            when = datetime.fromisoformat(t["happensAt"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if start <= when <= end and (oid not in first or when < first[oid]):
+            first[oid] = when
+    return [(by_id[o], w) for o, w in first.items()]
+
+
+def quotes_section(cfg, start, end, by_id, caches, sent_evs):
+    """Quotes sent in the window, with a rep leaderboard."""
+    import bot
+    ctx = bot.build_ctx([], caches or ({}, {}))
+    try:
+        rows = [(o, bot.rep_of(ctx, o)) for o, _ in quotes_sent(cfg, start, end, by_id)]
+    except tw.TwentyError as e:
+        bot.log(f"quote timeline failed, using the event log: {e}")
+        rows = [(by_id.get(e.get("id")) or {"amount": None}, e.get("rep") or e.get("owner")
+                 or "Unassigned") for e in sent_evs]
+    if not rows:
+        return [f"{OUTBOX} <b>Quotes sent: 0</b>"]
+    tally, rep_value, total = {}, {}, 0.0
+    for o, rep in rows:
+        v = amount_value(o.get("amount")) or 0.0
+        tally[rep] = tally.get(rep, 0) + 1
+        rep_value[rep] = rep_value.get(rep, 0.0) + v
+        total += v
+    return ([f"{OUTBOX} <b>Quotes sent: {len(rows)} · {fmt_money(total)}</b>"]
+            + leaderboard(tally, rep_value))
+
+
 def report(cfg, period, caches=None):
     start, end, title = window(cfg, period)
     evs = load_events(cfg, start, end)
@@ -156,20 +213,9 @@ def report(cfg, period, caches=None):
         lines.append(f"\n{TROPHY} <b>Closed won: {len(won_evs)} · "
                      f"{fmt_money(val, cur)}</b>"
                      )
-    if sent_evs:
-        val, cur, _ = period_value(sent_evs, by_id)
-        lines.append(f"{OUTBOX} <b>Quotes sent: {len(sent_evs)} · "
-                     f"{fmt_money(val, cur)}</b>"
-                     )
-        # Rep leaderboard. Events logged before `rep` existed fall back to
-        # the owner recorded at the time.
-        tally, rep_value = {}, {}
-        for e in sent_evs:
-            rep = e.get("rep") or e.get("owner") or "Unassigned"
-            tally[rep] = tally.get(rep, 0) + 1
-            v, _ = _value_of([e], by_id)
-            rep_value[rep] = rep_value.get(rep, 0.0) + v
-        lines += leaderboard(tally, rep_value)
+    if not snapshot_error:
+        lines += [""] * (not won_evs) + quotes_section(cfg, start, end, by_id,
+                                                        caches, sent_evs)
 
     if bulk:
         lines.append(f"\n<i>{len(bulk)} deal(s) moved by a pipeline edit in Twenty, "

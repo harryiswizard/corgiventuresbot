@@ -39,7 +39,12 @@ def get(path, params=None, tok=None):
                 return json.load(r)
         except urllib.error.HTTPError as e:
             body = e.read()[:200].decode("utf-8", "replace")
-            if e.code in (429, 500, 502, 503, 504) and attempt < 3:
+            if e.code == 429 and attempt < 3:
+                # Twenty allows 100 requests per 60s, so a couple of seconds is
+                # never enough — wait out a meaningful slice of the window.
+                time.sleep([20, 40, 65][attempt])
+                continue
+            if e.code in (500, 502, 503, 504) and attempt < 3:
                 time.sleep(2 ** attempt)
                 continue
             raise TwentyError(f"{e.code} {path}: {body}")
@@ -75,6 +80,18 @@ def find_many(obj, params=None, page_size=60, tok=None, max_pages=200):
 
 def opportunities(tok=None):
     return find_many("opportunities", tok=tok)
+
+
+def opportunity_timeline(since_iso, tok=None):
+    """Opportunity timeline entries (creates and edits) since `since_iso`.
+
+    Each carries `properties.diff` (edits) or `properties.after` (creates), so
+    this is Twenty's own record of when a deal reached a stage - it does not
+    depend on the bot having been running, or on the deal being submitted."""
+    return find_many("timelineActivities",
+                     {"filter": f'and(targetOpportunityId[is]:NOT_NULL,'
+                                f'happensAt[gte]:"{since_iso}")'},
+                     tok=tok, max_pages=100)
 
 
 def companies_by_id(ids, tok=None, chunk=30):
