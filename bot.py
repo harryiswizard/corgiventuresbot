@@ -205,9 +205,17 @@ def tg_api(method, tg, params=None, timeout=60, attempts=3):
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.load(r)
         except urllib.error.HTTPError as e:
-            body = e.read()[:200].decode("utf-8", "replace")
+            raw = e.read()
+            body = raw[:200].decode("utf-8", "replace")
             if e.code == 429 and attempt < attempts - 1:
-                time.sleep(2 ** attempt)
+                # Flood control: Telegram says how long to back off (often
+                # 10-30s after a burst). Retrying sooner just burns the
+                # attempts and drops the message.
+                try:
+                    wait = int(json.loads(raw)["parameters"]["retry_after"])
+                except (ValueError, KeyError, TypeError):
+                    wait = 2 ** attempt
+                time.sleep(min(max(wait, 1), 120) + 1)
                 continue
             if e.code == 409:
                 # Another copy of the bot is holding the long poll. Harmless in
@@ -295,13 +303,17 @@ def send_long(tg, text, chat_id=None, thread_id=None):
 
 
 def send(tg, text, chat_id=None, thread_id=None):
+    """Send to each target. True only if every send was accepted."""
+    ok = True
     for cid, tid in ([(chat_id, thread_id)] if chat_id else targets(tg)):
         params = {"chat_id": cid, "text": text, "parse_mode": "HTML",
                   "disable_web_page_preview": "true"}
         if tid:
             params["message_thread_id"] = tid
-        tg_api("sendMessage", tg, params)
+        r = tg_api("sendMessage", tg, params)
+        ok = ok and bool(r and r.get("ok"))
         time.sleep(0.35)
+    return ok
 
 
 # ---------------------------------------------------------------- formatting
@@ -575,8 +587,8 @@ def poll_appointments(cfg, tg, seed=False):
             continue
         if not seed:
             record_appointment(rec, True, cfg)
-            send(tg, company_card(cfg, rec, appointed=True))
-            log(f"sent appointed: {rec.get('name')}")
+            ok = send(tg, company_card(cfg, rec, appointed=True))
+            log(f"{'sent' if ok else 'FAILED to send'} appointed: {rec.get('name')}")
             sent += 1
         known[cid] = {"name": rec.get("name"),
                       "since": now_local(cfg).isoformat(timespec="seconds")}
@@ -590,8 +602,8 @@ def poll_appointments(cfg, tg, seed=False):
             except tw.TwentyError:
                 pass
             record_appointment(rec, False, cfg)
-            send(tg, company_card(cfg, rec, appointed=False))
-            log(f"sent unappointed: {prev.get('name')}")
+            ok = send(tg, company_card(cfg, rec, appointed=False))
+            log(f"{'sent' if ok else 'FAILED to send'} unappointed: {prev.get('name')}")
             sent += 1
 
     save_json(APPOINTED_FILE, known)
@@ -831,8 +843,8 @@ def poll_once(cfg, tg, state, caches, seed=False):
             f"(pipeline edit, not rep activity)")
 
     for kind, msg in pending:
-        send(tg, msg)
-        log(f"sent {kind}: {msg.splitlines()[0][:70]}")
+        ok = send(tg, msg)
+        log(f"{'sent' if ok else 'FAILED to send'} {kind}: {msg.splitlines()[0][:70]}")
     return len(pending)
 
 
