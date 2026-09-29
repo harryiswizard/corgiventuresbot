@@ -716,6 +716,9 @@ def is_submitted(opp, cfg):
 
     Returns (ready, reason) so the log says what it is waiting on."""
     field = cfg.get("submitted_field") or "submitted"
+    # A ticked Submitted box always goes out at once, whichever rule is on.
+    if opp.get(field):
+        return True, "submitted"
     if cfg.get("require_submitted_flag"):
         if field not in opp:
             log(f"no '{field}' field on opportunities; falling back to the idle rule")
