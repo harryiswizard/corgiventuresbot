@@ -9,11 +9,12 @@ import html, json, os
 from datetime import datetime, timedelta, timezone
 
 import twenty_api as tw
+import instance
 from bot import amount_value, appointments_line, fmt_money, leaderboard
 from stages import STAGE_ORDER, STAGE_EMOJI, stage_label, stage_rank
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-EVENTS_FILE = os.path.join(HERE, "state", "events.jsonl")
+EVENTS_FILE = os.path.join(instance.STATE_DIR, "events.jsonl")
 
 BULLET = "•"
 ARROW = "→"
@@ -134,10 +135,10 @@ def _reached(entry, stage):
             props = json.loads(props)
         except ValueError:
             return False
-    diff = (props.get("diff") or {}).get("stage") or {}
+    diff = (props.get("diff") or {}).get(instance.STAGE_FIELD) or {}
     if diff.get("after") == stage and diff.get("before") != stage:
         return True
-    return (props.get("after") or {}).get("stage") == stage
+    return (props.get("after") or {}).get(instance.STAGE_FIELD) == stage
 
 
 def quotes_sent(cfg, start, end, by_id):
@@ -221,14 +222,15 @@ def report(cfg, period, caches=None):
         lines.append(f"\n<i>{len(bulk)} deal(s) moved by a pipeline edit in Twenty, "
                      f"not by a rep \u2014 left out of the counts below.</i>")
 
-    lines.append(f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>")
-    if appointed:
+    if cfg.get("show_appointments", True):
+        lines.append(f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>")
+    if appointed and cfg.get("show_appointments", True):
         by_rep = {}
         for e in appointed:
             by_rep[e.get("by") or "Unassigned"] = by_rep.get(e.get("by") or "Unassigned", 0) + 1
         lines.append("   " + " \u00b7 ".join(f"{html.escape(k)} {v}"
                                              for k, v in sorted(by_rep.items(), key=lambda x: -x[1])))
-    if unappointed:
+    if unappointed and cfg.get("show_appointments", True):
         lines.append(f"\u21a9 <b>Appointments removed: {len(unappointed)}</b>")
 
     if moves:
@@ -270,8 +272,9 @@ def report(cfg, period, caches=None):
         lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
 
 
-    lines.append("")
-    lines.append(appointments_line(cfg))
+    if cfg.get("show_appointments", True):
+        lines.append("")
+        lines.append(appointments_line(cfg))
 
     if not os.path.exists(EVENTS_FILE):
         lines.append("\n<i>No event history yet — movements are logged from the "

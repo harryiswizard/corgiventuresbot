@@ -7,3 +7,5 @@ bot.err
 *.tmp
 __pycache__/
 *.pyc
+state-re/
+logs-re/

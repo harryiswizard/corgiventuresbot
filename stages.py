@@ -12,8 +12,10 @@ fails, and they mirror the live pipeline as of 2026-09-22:
 """
 import json, os, time
 
+import instance
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-CACHE = os.path.join(HERE, "state", "stages.json")
+CACHE = os.path.join(instance.STATE_DIR, "stages.json")
 OPPORTUNITY_OBJECT_ID = "f790657a-3427-473b-8926-50333080a2c1"
 CACHE_TTL = 15 * 60      # metadata edits in the UI should show up quickly
 
@@ -22,13 +24,25 @@ FALLBACK_STAGES = [
     ("QUOTE_SENT", "Quote Sent"),
     ("CLOSED_WON", "Closed Won"),
 ]
+if instance.STAGE_FIELD == "reinsuranceStage":
+    FALLBACK_STAGES = [
+        ("MEETING_BOOKED", "Meeting Booked"),
+        ("BROKER_APPOINTED", "Broker Appointed"),
+        ("SUBMISSION_RECEIVED", "Submission Received"),
+        ("QUOTE_SENT", "Quote Sent"),
+        ("CLOSED_WON", "Closed Won"),
+    ]
 FALLBACK_PIPELINES = [
     ("DIRECT_SOLD", "Direct Sold"),
     ("BROKER_SOLD", "Broker Sold"),
     ("ES_CARRIER", "E&S Carrier"),
+    ("REINSURANCE", "Reinsurance"),
 ]
 # One emoji per stage, so a glance at Telegram says where the deal got to.
 STAGE_EMOJI = {
+    "MEETING_BOOKED": "\U0001f4c5",   # calendar (Reinsurance)
+    "BROKER_APPOINTED": "\U0001f91d", # handshake (Reinsurance)
+    "SUBMISSION_RECEIVED": "\U0001f4e5",  # inbox tray (Reinsurance)
     "QUOTE_RECEIVED": "\U0001f4e5",   # inbox tray
     "QUOTE_SENT": "\U0001f4e4",       # outbox tray
     "CLOSED_WON": "\U0001f4b0",       # money bag
@@ -46,9 +60,11 @@ def _from_metadata():
         return None
     out = {}
     for f in d.get("data", []) or []:
-        if f.get("name") in ("stage", "pipeline") and f.get("options"):
-            out[f["name"]] = [(o["value"], o["label"]) for o in
-                              sorted(f["options"], key=lambda x: x.get("position", 0))]
+        name = f.get("name")
+        key = "stage" if name == instance.STAGE_FIELD else name
+        if key in ("stage", "pipeline") and f.get("options"):
+            out[key] = [(o["value"], o["label"]) for o in
+                        sorted(f["options"], key=lambda x: x.get("position", 0))]
     if "stage" not in out:
         return None
     return out.get("stage"), out.get("pipeline") or FALLBACK_PIPELINES

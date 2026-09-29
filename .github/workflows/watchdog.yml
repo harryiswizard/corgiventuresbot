@@ -28,3 +28,17 @@ jobs:
           else
             echo "poll is running ($live active)"
           fi
+
+      - name: Start poll-re if it is switched on and nothing is running
+        if: vars.RE_BOT_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          live=$(gh run list --repo ${{ github.repository }} --workflow poll-re.yml \
+                   --limit 5 --json status --jq '[.[] | select(.status != "completed")] | length')
+          if [ "$live" = "0" ]; then
+            echo "poll-re chain is down; restarting"
+            gh workflow run poll-re.yml --repo ${{ github.repository }} --ref main
+          else
+            echo "poll-re is running ($live active)"
+          fi

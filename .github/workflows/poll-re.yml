@@ -1,0 +1,66 @@
+name: poll-re
+
+# The Reinsurance deal bot: the same code as poll.yml, run as a second bot with
+# its own config (config.re.json), state (state-re/) and Telegram token. It
+# watches deals whose Pipeline is Reinsurance and reads their Reinsurance Stage.
+#
+# Switched on by the repository variable RE_BOT_ENABLED=true once the
+# TELEGRAM_BOT_TOKEN_RE secret exists. Pings go to the topic in the repository
+# variable TELEGRAM_HOME_RE ("chat_id:thread_id").
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["*.py", "config.re.json", ".github/workflows/poll-re.yml"]
+
+concurrency:
+  group: twenty-bot-poll-re
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write          # to dispatch the next run
+
+jobs:
+  poll:
+    if: vars.RE_BOT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: state-re
+          key: twenty-bot-re-state-v1-${{ github.run_id }}
+          restore-keys: twenty-bot-re-state-v1-
+
+      - name: Run the bot
+        env:
+          BOT_CONFIG: config.re.json
+          BOT_STATE_DIR: state-re
+          BOT_LOG_DIR: logs-re
+          TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN_RE }}
+          TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
+          TELEGRAM_HOME: ${{ vars.TELEGRAM_HOME_RE }}
+          RUN_SECONDS: "20700"
+        run: python3 bot.py loop
+
+      - name: Save state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: state-re
+          key: twenty-bot-re-state-v1-${{ github.run_id }}
+
+      - name: Start the next run
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run poll-re.yml --repo ${{ github.repository }} --ref main

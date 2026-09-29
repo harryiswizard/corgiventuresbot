@@ -13,10 +13,11 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import twenty_api as tw
+import instance
 from stages import STAGE_ORDER, stage_label, stage_rank
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-LOG_DIR = os.path.join(HERE, "logs")
+LOG_DIR = instance.LOG_DIR
 DEALS_CSV = os.path.join(LOG_DIR, "deals.csv")
 HISTORY_CSV = os.path.join(LOG_DIR, "stage_history.csv")
 

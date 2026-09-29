@@ -79,7 +79,16 @@ def find_many(obj, params=None, page_size=60, tok=None, max_pages=200):
 
 
 def opportunities(tok=None):
-    return find_many("opportunities", tok=tok)
+    """Every opportunity, with `stage` taken from this bot's stage field.
+
+    The Reinsurance bot reads `reinsuranceStage`; copying it onto `stage` here
+    means the rest of the code never needs to know which field it is."""
+    import instance
+    recs = find_many("opportunities", tok=tok)
+    if instance.STAGE_FIELD != "stage":
+        for o in recs:
+            o["stage"] = o.get(instance.STAGE_FIELD)
+    return recs
 
 
 def opportunity_timeline(since_iso, tok=None):

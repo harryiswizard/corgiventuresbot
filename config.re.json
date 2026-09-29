@@ -1,0 +1,26 @@
+{
+  "_about": "Reinsurance deal bot. Same code as the E&S bot (config.json); run with BOT_CONFIG=config.re.json BOT_STATE_DIR=state-re BOT_LOG_DIR=logs-re.",
+  "bot_label": "Reinsurance",
+  "_stage_field": "The Reinsurance pipeline has its own stage SELECT, separate from the shared Stage field.",
+  "stage_field": "reinsuranceStage",
+  "pipelines": [
+    "REINSURANCE"
+  ],
+  "_include_unassigned": "No-pipeline deals belong to the E&S bot.",
+  "include_unassigned": false,
+  "poll_seconds": 15,
+  "app_base_url": "https://app.twenty.com",
+  "timezone": "America/New_York",
+  "notify_new": true,
+  "notify_removed": false,
+  "quiet_hours": [],
+  "new_deal_settle_minutes": 5,
+  "new_deal_required_fields": [
+    "name"
+  ],
+  "_appointments": "Agency appointments are E&S business; the E&S bot announces them.",
+  "notify_appointed": false,
+  "notify_unappointed": false,
+  "show_appointments": false,
+  "burst_notify": false
+}

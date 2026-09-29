@@ -28,18 +28,19 @@ from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import twenty_api as tw
+import instance
 import stages as stages_module
 from stages import (STAGE_ORDER, STAGE_EMOJI, stage_label, pipeline_label,
                     stage_rank)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-STATE_DIR = os.path.join(HERE, "state")
+STATE_DIR = instance.STATE_DIR
 STATE_FILE = os.path.join(STATE_DIR, "state.json")
 EVENTS_FILE = os.path.join(STATE_DIR, "events.jsonl")
 OFFSET_FILE = os.path.join(STATE_DIR, "tg_offset.json")
 APPOINTED_FILE = os.path.join(STATE_DIR, "appointed.json")
-CONFIG_FILE = os.path.join(HERE, "config.json")
-TG_FILE = os.path.expanduser("~/.telegram_twenty_bot")
+CONFIG_FILE = instance.CONFIG_FILE
+TG_FILE = instance.TG_FILE
 
 BULLET = "•"
 _last_log = 0.0          # when the roster log was last written
@@ -75,7 +76,8 @@ DEFAULT_CONFIG = {
 
 # Short name used in the header line, e.g. "E&S — QUOTE SENT".
 PIPELINE_SHORT = {"ES_CARRIER": "E&S", "DIRECT_SOLD": "DIRECT",
-                  "BROKER_SOLD": "BROKER", None: "UNASSIGNED"}
+                  "BROKER_SOLD": "BROKER", "REINSURANCE": "REINSURANCE",
+                  None: "UNASSIGNED"}
 # Stages whose message always carries a value, $0 included.
 MONEY_STAGES = {"CLOSED_WON", "QUOTE_SENT"}
 SYMBOLS = {"USD": "$", "GBP": "£", "EUR": "€"}
@@ -845,8 +847,9 @@ COMMANDS = [
     ("pipeline", "Deal counts and value by stage now"),
     ("quotes", "Who has sent quotes: rep leaderboard"),
 ]
+_BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
 HELP = ("<b>Twenty deal bot</b>\n"
-        "I ping this chat on every E&amp;S deal stage change.\n\n"
+        f"I ping this chat on every {_BOT_NAME} deal stage change.\n\n"
         + "\n".join(f"/{c} — {d}" for c, d in COMMANDS))
 
 
@@ -867,8 +870,9 @@ def cmd_pipeline(cfg, caches):
     open_val = sum(v for k, v in totals.items() if k != "CLOSED_WON")
     lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
 
-    lines.append("")
-    lines.append(appointments_line(cfg))
+    if cfg.get("show_appointments", True):
+        lines.append("")
+        lines.append(appointments_line(cfg))
     return "\n".join(lines)
 
 
