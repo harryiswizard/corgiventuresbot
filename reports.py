@@ -72,11 +72,8 @@ def load_events(cfg, start, end):
 
 
 def _watched(opp, cfg):
-    p = opp.get("pipeline")
-    if p is None:
-        return bool(cfg.get("include_unassigned"))
-    pipes = cfg.get("pipelines") or []
-    return (not pipes) or (p in pipes)
+    from bot import watched
+    return watched(opp, cfg)
 
 
 def snapshot(cfg):

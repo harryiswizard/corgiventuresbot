@@ -86,8 +86,12 @@ def opportunities(tok=None):
     import instance
     recs = find_many("opportunities", tok=tok)
     if instance.STAGE_FIELD != "stage":
+        # A deal with a reinsurance company but no Reinsurance Stage (say it
+        # sits on the E&S pipeline) falls back to its shared Stage.
+        shared = {"QUOTE_RECEIVED": "SUBMISSION_RECEIVED"}
         for o in recs:
-            o["stage"] = o.get(instance.STAGE_FIELD)
+            own = o.get(instance.STAGE_FIELD)
+            o["stage"] = own or shared.get(o.get("stage"), o.get("stage"))
     return recs
 
 

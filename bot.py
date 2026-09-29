@@ -603,7 +603,31 @@ def poll_appointments(cfg, tg, seed=False):
 
 
 # --------------------------------------------------------------- poll engine
+_SEGMENT_COS = {"at": 0.0, "ids": set()}
+
+
+def segment_company_ids(cfg):
+    """Company ids in the `watch_segments` lists, refreshed every 10 minutes.
+
+    Lets the Reinsurance bot flag any deal with a CorgiRe broker, even one
+    nobody moved onto the Reinsurance pipeline."""
+    segs = cfg.get("watch_segments") or []
+    if not segs:
+        return set()
+    if time.time() - _SEGMENT_COS["at"] > 600:
+        try:
+            recs = tw.find_many("companies",
+                                {"filter": "segmentId[in]:[" + ",".join(segs) + "]"})
+            _SEGMENT_COS["ids"] = {r["id"] for r in recs}
+            _SEGMENT_COS["at"] = time.time()
+        except tw.TwentyError as e:
+            log(f"segment lookup failed: {e}")
+    return _SEGMENT_COS["ids"]
+
+
 def watched(opp, cfg):
+    if opp.get("companyId") and opp["companyId"] in segment_company_ids(cfg):
+        return True
     p = opp.get("pipeline")
     if p is None:
         return bool(cfg.get("include_unassigned"))
