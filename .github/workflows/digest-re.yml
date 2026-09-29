@@ -49,6 +49,5 @@ jobs:
           BOT_LOG_DIR: logs-re
           TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN_RE }}
-          TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
-          TELEGRAM_HOME: ${{ vars.TELEGRAM_HOME_RE }}
+          TELEGRAM_CHAT_ID: "5680104831"   # Harry's private chat with @CorgiReBot only
         run: python3 bot.py report ${{ steps.p.outputs.period }}
