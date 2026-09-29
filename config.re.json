@@ -3,15 +3,12 @@
   "bot_label": "Reinsurance",
   "_stage_field": "The Reinsurance pipeline has its own stage SELECT, separate from the shared Stage field.",
   "stage_field": "reinsuranceStage",
+  "_pipelines": "Only deals whose Pipeline is Reinsurance are announced (Harry, 2026-09-29): not deals that merely have a CorgiRe broker as the company.",
   "pipelines": [
     "REINSURANCE"
   ],
   "_include_unassigned": "No-pipeline deals belong to the E&S bot.",
   "include_unassigned": false,
-  "_watch_segments": "Also flag every deal whose company is on these lists (CorgiRe brokers), whatever its pipeline.",
-  "watch_segments": [
-    "808438df-21f4-447a-a721-93c37ad52875"
-  ],
   "_require_submitted_flag": "Off: a deal is announced once it has a name and nobody has edited it for new_deal_settle_minutes; no Submitted tick needed.",
   "require_submitted_flag": false,
   "poll_seconds": 15,
