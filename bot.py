@@ -873,6 +873,7 @@ COMMANDS = [
     ("monthly", "Last 30 days"),
     ("pipeline", "Deal counts and value by stage now"),
     ("quotes", "Who has sent quotes: rep leaderboard"),
+    ("closed", "Closed won total and rep leaderboard"),
 ]
 _BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
 HELP = ("<b>Twenty deal bot</b>\n"
@@ -969,6 +970,45 @@ def cmd_quotes(cfg, caches):
     return "\n".join(lines)
 
 
+def cmd_closed(cfg, caches):
+    """Closed Won business: the total, then reps ranked by amount won."""
+    opps = [o for o in tw.opportunities()
+            if watched(o, cfg) and o.get("stage") == "CLOSED_WON"]
+    if not opps:
+        return "\U0001f4b0 <b>Closed won</b>\n\nNothing closed won yet."
+    ctx = build_ctx(opps, caches)
+    by_rep, values = {}, {}
+    for o in opps:
+        rep = rep_of(ctx, o)
+        by_rep.setdefault(rep, []).append(o)
+        values[rep] = values.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
+
+    total = sum(values.values())
+    ranked = sorted(by_rep, key=lambda k: (-values[k], -len(by_rep[k]), k))
+    lines = [f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
+             f"{len(opps)} deal{'s' if len(opps) != 1 else ''}",
+             "", "\U0001f3c6 <b>Leaderboard</b>"]
+    for i, rep in enumerate(ranked[:20]):
+        badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+        n = len(by_rep[rep])
+        lines.append(f"   {badge} {esc(rep)} \u2014 <b>{fmt_money(values[rep])}</b>"
+                     f" \u00b7 {n} deal{'s' if n != 1 else ''}")
+    if len(ranked) > 20:
+        lines.append(f"   \u2026 and {len(ranked) - 20} more")
+    unpriced = sum(1 for o in opps if amount_value(o.get("amount")) is None)
+    if unpriced:
+        lines.append(f"\n\u26a0\ufe0f {unpriced} closed deal{'s have' if unpriced != 1 else ' has'}"
+                     " no Amount in Twenty")
+
+    for rep in ranked:
+        lines.append(f"\n<b>{esc(rep)}</b> ({len(by_rep[rep])})")
+        for o in sorted(by_rep[rep], key=lambda o: -(amount_value(o.get("amount")) or 0)):
+            who = company_field(o, ctx, "name") or deal_title(o, ctx)
+            amt = amount_value(o.get("amount"))
+            lines.append(f"   {esc(who[:44])}" + (f" \u00b7 {fmt_money(amt)}" if amt else ""))
+    return "\n".join(lines)
+
+
 def cmd_deals(cfg, caches, arg=""):
     """Every deal grouped by stage, by company. Long lists are trimmed."""
     import deal_log
@@ -1023,6 +1063,8 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send(tg, cmd_pipeline(cfg, caches), chat_id, thread_id)
         elif cmd in ("/quotes", "/leaderboard"):
             send_long(tg, cmd_quotes(cfg, caches), chat_id, thread_id)
+        elif cmd in ("/closed", "/won"):
+            send_long(tg, cmd_closed(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
             send(tg, f"Chat id: <code>{chat_id}</code>"
                  + (f" · topic <code>{thread_id}</code>" if thread_id else ""),
