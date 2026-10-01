@@ -198,13 +198,20 @@ def report(cfg, period, caches=None):
         snapshot_error = str(e)
     else:
         snapshot_error = None
+        # Deals deleted since (e.g. the 23 Sep wipe) drop out of every count.
+        moves = [e for e in moves if e.get("id") in by_id]
 
     label = {"daily": "Daily", "weekly": "Weekly",
              "monthly": "Monthly"}.get(period, "Report")
     lines = [f"<b>{label} — {title}</b>"]
 
     # Headline money: what was won, and what was quoted out, in the period.
-    won_evs = [e for e in moves if e.get("to") == "CLOSED_WON"]
+    # One per deal, and only deals still Closed Won in Twenty: a deal moved
+    # to Closed Won and then moved back or deleted is not closed business.
+    won_evs = list({e.get("id"): e for e in moves
+                    if e.get("to") == "CLOSED_WON"
+                    and (snapshot_error or (by_id.get(e.get("id")) or {}).get("stage")
+                         == "CLOSED_WON")}.values())
     sent_evs = [e for e in moves if e.get("to") == "QUOTE_SENT"]
     if won_evs:
         val, cur, _ = period_value(won_evs, by_id)
@@ -232,8 +239,9 @@ def report(cfg, period, caches=None):
 
     if moves:
         by_stage = {}
-        for e in moves:
-            by_stage.setdefault(e.get("to"), []).append(e)
+        for e in moves:  # a deal counts once per stage it reached
+            by_stage.setdefault(e.get("to"), {})[e.get("id")] = e
+        by_stage = {k: list(v.values()) for k, v in by_stage.items()}
         lines.append(f"\n<b>Stage changes: {len(moves)}</b>")
         for s in sorted(by_stage, key=stage_rank):
             val, cur = _value_of(by_stage[s], by_id)
