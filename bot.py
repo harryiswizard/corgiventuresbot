@@ -30,7 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import twenty_api as tw
 import instance
 import stages as stages_module
-from stages import (STAGE_ORDER, STAGE_EMOJI, stage_label, pipeline_label,
+from stages import (HIDDEN_STAGES, STAGE_ORDER, STAGE_EMOJI, stage_label, pipeline_label,
                     stage_rank)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -635,6 +635,11 @@ def watched(opp, cfg):
     return (not pipes) or (p in pipes)
 
 
+def hidden(opp):
+    """A deal on a stage the bot ignores (Closed Lost)."""
+    return opp.get("stage") in HIDDEN_STAGES
+
+
 def build_ctx(opps, caches):
     """Resolve the people and company details needed to render `opps`.
 
@@ -772,7 +777,10 @@ def poll_once(cfg, tg, state, caches, seed=False):
         field = cfg.get("submitted_field") or "submitted"
         if not prev.get("announced", True):
             ready, reason = is_submitted(opp, cfg)
-            if ready and cfg.get("notify_new"):
+            if ready and hidden(opp):
+                state[oid] = dict(prev, announced=True)
+                log(f"{deal_title(opp)} submitted at {opp.get('stage')}; not announced")
+            elif ready and cfg.get("notify_new"):
                 changes.append(("new", opp, None))
             elif not ready:
                 waiting += 1
@@ -785,6 +793,9 @@ def poll_once(cfg, tg, state, caches, seed=False):
             log(f"{deal_title(opp)} un-submitted; back to draft")
             continue
         if prev.get("stage") != opp.get("stage"):
+            if hidden(opp):
+                log(f"{deal_title(opp)} moved to {opp.get('stage')}; ignored")
+                continue
             changes.append(("stage", opp, prev.get("stage")))
 
     # A stage nobody has seen before means the options were edited in the UI.
@@ -835,7 +846,7 @@ def poll_once(cfg, tg, state, caches, seed=False):
     if changes or time.time() - _last_log > 300:
         try:
             import deal_log
-            deal_log.write(deal_log.collect(list(live.values())))
+            deal_log.write(deal_log.collect([o for o in live.values() if not hidden(o)]))
             _last_log = time.time()
         except Exception:
             log("deal log failed:\n" + traceback.format_exc())
@@ -882,7 +893,7 @@ HELP = ("<b>Twenty deal bot</b>\n"
 
 
 def cmd_pipeline(cfg, caches):
-    opps = [o for o in tw.opportunities() if watched(o, cfg)]
+    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
     counts, totals = {}, {}
     for o in opps:
         s = o.get("stage")
@@ -1012,7 +1023,7 @@ def cmd_closed(cfg, caches):
 def cmd_deals(cfg, caches, arg=""):
     """Every deal grouped by stage, by company. Long lists are trimmed."""
     import deal_log
-    opps = [o for o in tw.opportunities() if watched(o, cfg)]
+    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
     rows = deal_log.collect(opps)
     deal_log.write(rows)
 

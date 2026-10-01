@@ -95,7 +95,15 @@ def _load():
 
 _STAGES, _PIPELINES = _load()
 
-STAGE_ORDER = [v for v, _ in _STAGES]
+# Stages the bot ignores entirely (config `hidden_stages`): no cards, and left
+# out of /pipeline, /deals, /quotes and the reports. Closed Lost by default.
+try:
+    with open(instance.CONFIG_FILE) as _f:
+        HIDDEN_STAGES = set(json.load(_f).get("hidden_stages", ["CLOSED_LOST"]))
+except (OSError, ValueError):
+    HIDDEN_STAGES = {"CLOSED_LOST"}
+
+STAGE_ORDER = [v for v, _ in _STAGES if v not in HIDDEN_STAGES]
 STAGE_LABELS = dict(_STAGES)
 PIPELINE_LABELS = dict(_PIPELINES)
 
@@ -122,7 +130,7 @@ def refresh():
     if not live:
         return False
     _STAGES, _PIPELINES = live
-    STAGE_ORDER[:] = [v for v, _ in _STAGES]
+    STAGE_ORDER[:] = [v for v, _ in _STAGES if v not in HIDDEN_STAGES]
     STAGE_LABELS.clear()
     STAGE_LABELS.update(dict(_STAGES))
     PIPELINE_LABELS.clear()

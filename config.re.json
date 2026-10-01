@@ -25,5 +25,9 @@
   "notify_appointed": false,
   "notify_unappointed": false,
   "show_appointments": false,
-  "burst_notify": false
+  "burst_notify": false,
+  "_hidden_stages": "Stages the bot ignores: no pings, left out of /pipeline, /deals, /quotes and reports.",
+  "hidden_stages": [
+    "CLOSED_LOST"
+  ]
 }

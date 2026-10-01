@@ -78,7 +78,9 @@ def _watched(opp, cfg):
 
 def snapshot(cfg):
     """Deals per stage and their value right now, straight from Twenty."""
-    opps = [o for o in tw.opportunities() if _watched(o, cfg)]
+    from stages import HIDDEN_STAGES
+    opps = [o for o in tw.opportunities()
+            if _watched(o, cfg) and o.get("stage") not in HIDDEN_STAGES]
     counts, values = {}, {}
     for o in opps:
         st = o.get("stage")
