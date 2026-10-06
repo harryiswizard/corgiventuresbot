@@ -479,6 +479,10 @@ def stage_change_msg(cfg, opp, old, new, ctx):
 
 
 def new_deal_msg(cfg, opp, ctx):
+    # Keyed in straight at Closed Won (submitted and won in one save): that is
+    # a win, so it gets the Closed Won card, not a "New Deal" one.
+    if opp.get("stage") == "CLOSED_WON":
+        return card(cfg, opp, ctx, f"{stage_label('CLOSED_WON')} (new deal)", "Stage")
     return card(cfg, opp, ctx, "New Deal", "Created At")
 
 

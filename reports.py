@@ -210,7 +210,9 @@ def report(cfg, period, caches=None):
     # Headline money: what was won, and what was quoted out, in the period.
     # One per deal, and only deals still Closed Won in Twenty: a deal moved
     # to Closed Won and then moved back or deleted is not closed business.
-    won_evs = list({e.get("id"): e for e in moves
+    # A deal submitted straight at Closed Won is logged as kind "new", not a
+    # stage move; it is still a win.
+    won_evs = list({e.get("id"): e for e in moves + new
                     if e.get("to") == "CLOSED_WON"
                     and (snapshot_error or (by_id.get(e.get("id")) or {}).get("stage")
                          == "CLOSED_WON")}.values())
