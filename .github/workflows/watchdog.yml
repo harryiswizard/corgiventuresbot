@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Start poll if nothing is running
+        if: vars.ES_BOT_ON_GITHUB == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

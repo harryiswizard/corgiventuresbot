@@ -22,6 +22,9 @@ permissions:
 
 jobs:
   poll:
+    # Off while the E&S bot runs on Harry's Mac off the new Twenty key (2026-10-07).
+    # To move it back: add secret TWENTY_TOKEN_LONDON + variable ES_BOT_ON_GITHUB=true.
+    if: vars.ES_BOT_ON_GITHUB == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 355
     steps:

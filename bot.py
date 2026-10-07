@@ -1107,7 +1107,17 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
         send(tg, f"Twenty API error: {html.escape(str(e))}", chat_id, thread_id)
 
 
-def drain_commands(cfg, tg, state, caches, wait=0):
+def drain_commands(*a, **k):
+    """BOT_NO_COMMANDS=1: a notify-only instance (e.g. the Mac watching the new
+    Twenty) must not read Telegram updates, or it fights the hosted bot for
+    getUpdates. It just waits out the interval instead."""
+    if os.environ.get("BOT_NO_COMMANDS"):
+        time.sleep(max(1, int(k.get("wait") or 15)))
+        return
+    return _drain_commands(*a, **k)
+
+
+def _drain_commands(cfg, tg, state, caches, wait=0):
     """Answer queued Telegram commands. The offset is persisted so a `once`
     run never replays a command it has already answered."""
     offset = load_json(OFFSET_FILE, {}).get("offset", 0)
