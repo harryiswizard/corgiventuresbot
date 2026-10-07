@@ -7,7 +7,10 @@ and the brackets must be percent-encoded or the API silently returns nothing.
 """
 import json, os, time, urllib.parse, urllib.request, urllib.error
 
-BASE = "https://api.twenty.com/rest"
+# TWENTY_BASE switches workspaces: the E&S bot reads the new Twenty
+# (corgi-ventures host, London team only); the Reinsurance bot keeps the old one.
+BASE = os.environ.get("TWENTY_BASE", "https://api.twenty.com").rstrip("/") + "/rest"
+TEAM_ID = os.environ.get("TWENTY_TEAM_ID", "").strip()
 TOKEN_FILE = os.path.expanduser(os.environ.get("TWENTY_TOKEN_FILE", "~/.twenty_team_token"))
 UA = "curl/8.7.1"
 
@@ -84,7 +87,13 @@ def opportunities(tok=None):
     The Reinsurance bot reads `reinsuranceStage`; copying it onto `stage` here
     means the rest of the code never needs to know which field it is."""
     import instance
-    recs = find_many("opportunities", tok=tok)
+    params = {"filter": f"teamId[eq]:{TEAM_ID}"} if TEAM_ID else None
+    recs = find_many("opportunities", params, tok=tok)
+    if TEAM_ID:
+        # In the new Twenty, Companies hold insureds and the broker is the
+        # Partner (brokerFirm), which is what the cards' company line means.
+        for o in recs:
+            o["companyId"] = o.get("brokerFirmId")
     if instance.STAGE_FIELD != "stage":
         # A deal with a reinsurance company but no Reinsurance Stage (say it
         # sits on the E&S pipeline) falls back to its shared Stage.
@@ -117,10 +126,11 @@ def companies_by_id(ids, tok=None, chunk=30):
     for i in range(0, len(ids), chunk):
         batch = ids[i:i + chunk]
         try:
-            d = get("/companies",
+            obj = "brokerFirms" if TEAM_ID else "companies"
+            d = get("/" + obj,
                     {"filter": "id[in]:[" + ",".join(batch) + "]", "limit": chunk},
                     tok=tok)
-            for rec in d.get("data", {}).get("companies", []) or []:
+            for rec in d.get("data", {}).get(obj, []) or []:
                 out[rec["id"]] = rec
         except TwentyError:
             continue

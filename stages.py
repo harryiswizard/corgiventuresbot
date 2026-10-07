@@ -16,7 +16,7 @@ import instance
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CACHE = os.path.join(instance.STATE_DIR, "stages.json")
-OPPORTUNITY_OBJECT_ID = "f790657a-3427-473b-8926-50333080a2c1"
+OPPORTUNITY_OBJECT_ID = os.environ.get("TWENTY_OPP_OBJECT_ID", "f790657a-3427-473b-8926-50333080a2c1")
 CACHE_TTL = 15 * 60      # metadata edits in the UI should show up quickly
 
 FALLBACK_STAGES = [

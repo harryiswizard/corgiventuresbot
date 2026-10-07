@@ -43,7 +43,12 @@ jobs:
 
       - name: Post digest
         env:
-          TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN }}
+          TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN_LONDON }}
+          # New Twenty, Corgi Ventures London team only (2026-10-07).
+          TWENTY_BASE: "https://corgi-ventures.crm.corgiinsure.com"
+          TWENTY_TEAM_ID: "7f2f3692-04aa-4eec-8d16-7cce0ff6cbf2"
+          TWENTY_OPP_OBJECT_ID: "032a6849-022d-444d-b130-5cf67096cd6d"
+          APP_BASE_URL: "https://corgi-ventures.crm.corgiinsure.com"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
           TELEGRAM_HOME: "-1004435246978:7040"

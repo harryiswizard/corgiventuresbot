@@ -107,11 +107,22 @@ def save_json(path, obj):
     os.replace(tmp, path)
 
 
+def _env_overrides(cfg):
+    """Workspace switches set by the workflow (see poll.yml)."""
+    if os.environ.get("APP_BASE_URL"):
+        cfg["app_base_url"] = os.environ["APP_BASE_URL"]
+    if os.environ.get("TWENTY_TEAM_ID"):
+        # Companies are insureds in the new Twenty, and its Appointed toggle
+        # lives on Partners, so the company-appointed pings would be noise.
+        cfg["notify_appointed"] = False
+    return cfg
+
+
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
     cfg.update({k: v for k, v in load_json(CONFIG_FILE, {}).items()
                 if not k.startswith("_")})
-    return cfg
+    return _env_overrides(cfg)
 
 
 def tz(cfg):
@@ -1179,6 +1190,16 @@ def main():
     tg = tg_config()
     state = load_json(STATE_FILE, {})
     caches = ({}, {})
+    # Moving to another Twenty workspace: deals the bot has never seen there
+    # are recorded silently on the first poll instead of announced as new.
+    ws_file = os.path.join(os.path.dirname(STATE_FILE), "workspace.json")
+    ws_now = tw.BASE + "|" + tw.TEAM_ID
+    ws_was = load_json(ws_file, {}).get("workspace")
+    if ws_was != ws_now:
+        if state and (ws_was or tw.TEAM_ID):
+            log(f"workspace changed to {ws_now}; re-seeding quietly")
+            state.clear()
+        save_json(ws_file, {"workspace": ws_now})
 
     if mode == "seed":
         poll_once(cfg, tg, state, caches, seed=True)
