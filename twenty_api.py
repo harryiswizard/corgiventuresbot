@@ -104,12 +104,22 @@ def opportunities(tok=None):
     return recs
 
 
-def opportunity_timeline(since_iso, tok=None):
+def opportunity_timeline(since_iso, tok=None, ids=None):
     """Opportunity timeline entries (creates and edits) since `since_iso`.
 
     Each carries `properties.diff` (edits) or `properties.after` (creates), so
     this is Twenty's own record of when a deal reached a stage - it does not
     depend on the bot having been running, or on the deal being submitted."""
+    if ids:
+        # The new Twenty holds every team's deal history; asking only for our
+        # deals keeps the query small and under the page cap.
+        out, ids = [], [i for i in dict.fromkeys(ids) if i]
+        for i in range(0, len(ids), 40):
+            out += find_many("timelineActivities",
+                             {"filter": f'and(targetOpportunityId[in]:[{",".join(ids[i:i + 40])}],'
+                                        f'happensAt[gte]:"{since_iso}")'},
+                             tok=tok, max_pages=100)
+        return out
     return find_many("timelineActivities",
                      {"filter": f'and(targetOpportunityId[is]:NOT_NULL,'
                                 f'happensAt[gte]:"{since_iso}")'},

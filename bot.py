@@ -389,7 +389,15 @@ def rep_of(ctx, opp):
     Not `updatedBy` - bulk tidy-ups in Twenty make that the admin, not the rep
     who actually sent the quote."""
     made = opp.get("createdBy") or {}
-    return (member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner")
+    old_owner = None
+    if not opp.get("ownerId"):
+        import legacy
+        if legacy.available():
+            try:
+                old_owner = legacy.owners().get(opp.get("id"))
+            except Exception:
+                old_owner = None
+    return (member(ctx, opp.get("ownerId")) or old_owner or opp.get("hubspotOwner")
             or (made.get("name") if made.get("source") == "MANUAL" else None)
             or "Unassigned")
 

@@ -140,25 +140,62 @@ def _reached(entry, stage):
     return (props.get("after") or {}).get(instance.STAGE_FIELD) == stage
 
 
-def quotes_sent(cfg, start, end, by_id):
-    """[(opp, when)] for every deal that moved onto Quote Sent in the window.
+def reached_stage(cfg, start, end, by_id, stage):
+    """[(opp, when)] for every deal that landed on `stage` in the window.
 
     Read from Twenty's timeline, not the bot's event log: most quotes are
     keyed straight in at Quote Sent (a new-deal card, not a stage move), and
-    deals nobody ticked "submitted" never reach the event log at all."""
+    deals nobody ticked "submitted" never reach the event log at all.
+    A deal created straight at `stage` has an empty create entry in the new
+    Twenty, so its starting stage is taken from its first stage edit (or its
+    current stage if it was never edited)."""
     first = {}
     since = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    for t in tw.opportunity_timeline(since):
+    tl = tw.opportunity_timeline(since, ids=list(by_id) if tw.TEAM_ID else None)
+    import legacy
+    if legacy.available():
+        # History from before the move to the new Twenty (same deal ids).
+        try:
+            tl = tl + legacy.timeline(since, list(by_id))
+        except Exception as e:
+            import bot
+            bot.log(f"old-Twenty timeline failed: {e}")
+    created, first_before = {}, {}
+    for t in sorted(tl, key=lambda t: t.get("happensAt") or ""):
         oid = t.get("targetOpportunityId")
-        if oid not in by_id or not _reached(t, "QUOTE_SENT"):
+        if oid not in by_id:
             continue
         try:
             when = datetime.fromisoformat(t["happensAt"].replace("Z", "+00:00"))
         except (KeyError, ValueError):
             continue
-        if start <= when <= end and (oid not in first or when < first[oid]):
+        name = (t.get("timelineActivityTypeSnapshot") or {}).get("name") or t.get("name") or ""
+        props = t.get("properties") or {}
+        if isinstance(props, str):
+            try:
+                props = json.loads(props)
+            except ValueError:
+                props = {}
+        d = (props.get("diff") or {}).get(instance.STAGE_FIELD)
+        if name.endswith("Created") or name.endswith(".created"):
+            made = (by_id.get(oid) or {}).get("createdBy") or {}
+            if made.get("source") != "IMPORT" and "import" not in (made.get("name") or "").lower() \
+                    and "migration" not in (made.get("name") or "").lower():
+                # An imported copy was not created "at" its stage on import day.
+                created.setdefault(oid, when)
+        if d and oid not in first_before:
+            first_before[oid] = d.get("before")
+        if _reached(t, stage) and start <= when <= end and (oid not in first or when < first[oid]):
+            first[oid] = when
+    for oid, when in created.items():
+        start_stage = first_before.get(oid, (by_id.get(oid) or {}).get("stage"))
+        if start_stage == stage and start <= when <= end and oid not in first:
             first[oid] = when
     return [(by_id[o], w) for o, w in first.items()]
+
+
+def quotes_sent(cfg, start, end, by_id):
+    return reached_stage(cfg, start, end, by_id, "QUOTE_SENT")
 
 
 def quotes_section(cfg, start, end, by_id, caches, sent_evs):
@@ -216,6 +253,15 @@ def report(cfg, period, caches=None):
                     if e.get("to") == "CLOSED_WON"
                     and (snapshot_error or (by_id.get(e.get("id")) or {}).get("stage")
                          == "CLOSED_WON")}.values())
+    if not snapshot_error:
+        try:
+            seen = {e.get("id") for e in won_evs}
+            for o, when in reached_stage(cfg, start, end, by_id, "CLOSED_WON"):
+                if o["id"] not in seen and o.get("stage") == "CLOSED_WON":
+                    won_evs.append({"id": o["id"], "to": "CLOSED_WON", "name": o.get("name")})
+        except tw.TwentyError as e:
+            import bot
+            bot.log(f"won timeline failed, using the event log only: {e}")
     sent_evs = [e for e in moves if e.get("to") == "QUOTE_SENT"]
     if won_evs:
         val, cur, _ = period_value(won_evs, by_id)
