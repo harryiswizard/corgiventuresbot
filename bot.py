@@ -111,10 +111,7 @@ def _env_overrides(cfg):
     """Workspace switches set by the workflow (see poll.yml)."""
     if os.environ.get("APP_BASE_URL"):
         cfg["app_base_url"] = os.environ["APP_BASE_URL"]
-    if os.environ.get("TWENTY_TEAM_ID"):
-        # Companies are insureds in the new Twenty, and its Appointed toggle
-        # lives on Partners, so the company-appointed pings would be noise.
-        cfg["notify_appointed"] = False
+    # New Twenty: Appointed lives on Partners (brokerFirm); see poll_appointments.
     return cfg
 
 
@@ -536,7 +533,8 @@ def company_card(cfg, rec, appointed=True):
     """Card for a company whose Appointed toggle just changed."""
     head = "APPOINTED" if appointed else "APPOINTMENT REMOVED"
     emoji = "\U0001f91d" if appointed else "\u21a9"
-    lines = [f"{emoji} <b>AGENCY \u2014 {head}</b> {emoji}", ""]
+    kind = "PARTNER" if tw.TEAM_ID else "AGENCY"
+    lines = [f"{emoji} <b>{kind} \u2014 {head}</b> {emoji}", ""]
     lines.append(f"\U0001f3e2 <b>{esc(rec.get('name') or '(unnamed company)')}</b>")
 
     ctype = pretty_enum(rec.get("leadType"))
@@ -558,8 +556,9 @@ def company_card(cfg, rec, appointed=True):
     by = (rec.get("updatedBy") or {}).get("name") or "Unassigned"
     lines.append(f"\U0001f468\u200d\U0001f4bc By: {esc(by)}")
 
-    url = f"{cfg['app_base_url'].rstrip('/')}/object/company/{rec['id']}"
-    lines += ["", f'\U0001f517 <a href="{url}">View Company in Twenty</a>']
+    obj = "brokerFirm" if tw.TEAM_ID else "company"
+    url = f"{cfg['app_base_url'].rstrip('/')}/object/{obj}/{rec['id']}"
+    lines += ["", f'\U0001f517 <a href="{url}">View {"Partner" if tw.TEAM_ID else "Company"} in Twenty</a>']
     return "\n".join(lines)
 
 
@@ -585,10 +584,13 @@ def poll_appointments(cfg, tg, seed=False):
     large the company table gets."""
     if not cfg.get("notify_appointed"):
         return 0
+    if not os.path.exists(APPOINTED_FILE):
+        seed = True   # first run (e.g. a new workspace): record, don't announce
     known = load_json(APPOINTED_FILE, {})
+    obj = "brokerFirms" if tw.TEAM_ID else "companies"
+    flt = f"and(appointed[eq]:true,teamId[eq]:{tw.TEAM_ID})" if tw.TEAM_ID else "appointed[eq]:true"
     try:
-        recs = tw.find_many("companies", {"filter": "appointed[eq]:true"},
-                            page_size=60, max_pages=40)
+        recs = tw.find_many(obj, {"filter": flt}, page_size=60, max_pages=40)
     except tw.TwentyError as e:
         log(f"appointed lookup failed: {e}")
         return 0
@@ -611,7 +613,8 @@ def poll_appointments(cfg, tg, seed=False):
         if not seed and cfg.get("notify_unappointed"):
             rec = {"id": cid, "name": prev.get("name")}
             try:
-                rec = tw.get(f"/companies/{cid}")["data"]["company"]
+                rec = (tw.get(f"/brokerFirms/{cid}")["data"]["brokerFirm"] if tw.TEAM_ID
+                       else tw.get(f"/companies/{cid}")["data"]["company"])
             except tw.TwentyError:
                 pass
             record_appointment(rec, False, cfg)
