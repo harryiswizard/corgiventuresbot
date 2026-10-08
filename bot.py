@@ -112,6 +112,10 @@ def _env_overrides(cfg):
     if os.environ.get("APP_BASE_URL"):
         cfg["app_base_url"] = os.environ["APP_BASE_URL"]
     # New Twenty: Appointed lives on Partners (brokerFirm); see poll_appointments.
+    if os.environ.get("TWENTY_TEAM_ID"):
+        # Atlas moves quotes in batches, so "many moves at once" is real rep work
+        # here, not a pipeline edit: never swallow stage moves (Harry 2026-10-08).
+        cfg["burst_threshold"] = 0
     return cfg
 
 
@@ -204,7 +208,7 @@ def chat_ids(tg):
     return ids
 
 
-def tg_api(method, tg, params=None, timeout=60, attempts=3):
+def tg_api(method, tg, params=None, timeout=60, attempts=6):
     """Telegram call with retries — a dropped TLS handshake would otherwise
     swallow a ping silently."""
     url = f"https://api.telegram.org/bot{tg['bot_token']}/{method}"
@@ -217,7 +221,13 @@ def tg_api(method, tg, params=None, timeout=60, attempts=3):
         except urllib.error.HTTPError as e:
             body = e.read()[:200].decode("utf-8", "replace")
             if e.code == 429 and attempt < attempts - 1:
-                time.sleep(2 ** attempt)
+                # Groups take ~20 messages a minute; wait as long as Telegram asks
+                # (a batch of Atlas quotes used to lose everything after the 20th).
+                try:
+                    wait = int(json.loads(body).get("parameters", {}).get("retry_after") or 0)
+                except ValueError:
+                    wait = 0
+                time.sleep(max(wait + 1, 2 ** attempt))
                 continue
             if e.code == 409:
                 # Another copy of the bot is holding the long poll. Harmless in
