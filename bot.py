@@ -390,6 +390,13 @@ def member(ctx, member_id):
     return (ctx or {}).get("members", {}).get(member_id)
 
 
+def deal_owner(ctx, opp):
+    """Who owns the account that submitted the deal: the Partner's owner in the
+    new Twenty (the deal's own owner field is Atlas-managed), else the deal owner."""
+    return (member(ctx, company_field(opp, ctx, "partnerOwnerId"))
+            or member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner"))
+
+
 def rep_of(ctx, opp):
     """The rep a deal is credited to: its owner, else whoever created it.
 
@@ -485,9 +492,9 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
     people = []
     if stage == "QUOTE_SENT":
         people.append(f"\U0001f4e4 Quote sent by: <b>{esc(rep_of(ctx, opp))}</b>")
-    ae = member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner")
-    if ae:
-        people.append(f"\U0001f468‍\U0001f4bc AE: {esc(ae)}")
+    owner = deal_owner(ctx, opp)
+    people.append(f"\U0001f468‍\U0001f4bc Deal Owner: <b>{esc(owner)}</b>" if owner
+                  else "\U0001f468‍\U0001f4bc Deal Owner: <i>not set in Twenty</i>")
     bdr = member(ctx, opp.get("bdrId"))
     if bdr:
         people.append(f"\U0001f465 BDR: {esc(bdr)}")
@@ -716,7 +723,7 @@ def record_event(kind, opp, old, new, ctx, cfg, bulk=False):
         "pipeline": opp.get("pipeline"),
         "from": old,
         "to": new,
-        "owner": member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner"),
+        "owner": deal_owner(ctx, opp),
         "bdr": member(ctx, opp.get("bdrId")),
         "rep": rep_of(ctx, opp),
         "company": company_field(opp, ctx, "name"),
