@@ -1108,9 +1108,19 @@ def cmd_deals(cfg, caches, arg=""):
     return "\n".join(lines)
 
 
+SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month", "/deals",
+                 "/pipeline", "/quotes", "/leaderboard", "/closed", "/won"}
+
+
 def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
     import reports
     cmd = text.strip().split()[0].lower().split("@")[0]
+    if cmd in SLOW_COMMANDS:
+        # Show "typing…" straight away; the reports take a few seconds.
+        p = {"chat_id": chat_id, "action": "typing"}
+        if thread_id:
+            p["message_thread_id"] = thread_id
+        tg_api("sendChatAction", tg, p)
     try:
         if cmd in ("/start", "/help"):
             send(tg, HELP, chat_id, thread_id)
@@ -1302,24 +1312,31 @@ def main():
 
     log(f"serve: watching {cfg.get('pipelines') or 'all pipelines'}, "
         f"every {cfg['poll_seconds']}s, {len(state)} deals in state")
-    seed = not state
-    next_poll = 0.0
-    while True:
-        try:
-            if time.time() >= next_poll:
+
+    def poller():
+        # Deal polling runs on its own thread so a slow poll never holds up a
+        # command reply (replies used to queue behind each 6-9s poll).
+        nonlocal cfg
+        seed = not state
+        while True:
+            wait = cfg["poll_seconds"]
+            try:
                 poll_once(cfg, tg, state, caches, seed=seed)
                 seed = False
-                next_poll = time.time() + cfg["poll_seconds"]
                 cfg = load_config()
-        except tw.TwentyError as e:
-            log(f"poll failed: {e}")
-            next_poll = time.time() + max(cfg["poll_seconds"], 120)
-        except Exception:
-            log("poll crashed:\n" + traceback.format_exc())
-            next_poll = time.time() + max(cfg["poll_seconds"], 120)
+            except tw.TwentyError as e:
+                log(f"poll failed: {e}")
+                wait = max(cfg["poll_seconds"], 120)
+            except Exception:
+                log("poll crashed:\n" + traceback.format_exc())
+                wait = max(cfg["poll_seconds"], 120)
+            time.sleep(wait)
+
+    import threading
+    threading.Thread(target=poller, name="poller", daemon=True).start()
+    while True:
         try:
-            drain_commands(cfg, tg, state, caches,
-                           wait=max(1, min(25, int(next_poll - time.time()))))
+            drain_commands(cfg, tg, state, caches, wait=25)
         except Exception:
             log("command loop error:\n" + traceback.format_exc())
             time.sleep(5)

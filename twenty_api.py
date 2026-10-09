@@ -5,7 +5,8 @@ Twenty sits behind Cloudflare, which 403s (error 1010) on urllib's default
 User-Agent, so every request sends a curl UA. REST filters are `field[op]:value`
 and the brackets must be percent-encoded or the API silently returns nothing.
 """
-import json, os, time, urllib.parse, urllib.request, urllib.error
+import http.client, json, os, threading, time, urllib.parse, urllib.request, urllib.error
+from concurrent.futures import ThreadPoolExecutor
 
 # TWENTY_BASE switches workspaces: the E&S bot reads the new Twenty
 # (corgi-ventures host, London team only); the Reinsurance bot keeps the old one.
@@ -28,34 +29,59 @@ def token():
         return f.read().strip()
 
 
+_local = threading.local()
+
+
+def _conn():
+    """One kept-alive HTTPS connection per thread. A fresh TLS handshake per
+    request was about half of every call's ~0.6s."""
+    c = getattr(_local, "conn", None)
+    if c is None:
+        u = urllib.parse.urlsplit(BASE)
+        c = _local.conn = http.client.HTTPSConnection(u.netloc, timeout=45)
+    return c
+
+
+def _drop_conn():
+    c = getattr(_local, "conn", None)
+    _local.conn = None
+    if c is not None:
+        try:
+            c.close()
+        except Exception:
+            pass
+
+
 def get(path, params=None, tok=None):
     tok = tok or token()
-    url = BASE + path
+    url = urllib.parse.urlsplit(BASE).path + path
     if params:
         url += "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-    req = urllib.request.Request(url)
-    req.add_header("Authorization", "Bearer " + tok)
-    req.add_header("User-Agent", UA)
+    headers = {"Authorization": "Bearer " + tok, "User-Agent": UA}
     for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=45) as r:
-                return json.load(r)
-        except urllib.error.HTTPError as e:
-            body = e.read()[:200].decode("utf-8", "replace")
-            if e.code == 429 and attempt < 3:
-                # Twenty allows 100 requests per 60s, so a couple of seconds is
-                # never enough — wait out a meaningful slice of the window.
-                time.sleep([20, 40, 65][attempt])
-                continue
-            if e.code in (500, 502, 503, 504) and attempt < 3:
-                time.sleep(2 ** attempt)
-                continue
-            raise TwentyError(f"{e.code} {path}: {body}")
-        except urllib.error.URLError as e:
+            c = _conn()
+            c.request("GET", url, headers=headers)
+            r = c.getresponse()
+            body = r.read()
+        except (OSError, http.client.HTTPException) as e:
+            _drop_conn()        # stale keep-alive socket, DNS blip, timeout
             if attempt < 3:
-                time.sleep(2 ** attempt)
+                time.sleep(2 ** attempt if attempt else 0)
                 continue
             raise TwentyError(f"network {path}: {e}")
+        if r.status == 200:
+            return json.loads(body)
+        snippet = body[:200].decode("utf-8", "replace")
+        if r.status == 429 and attempt < 3:
+            # Twenty allows 100 requests per 60s, so a couple of seconds is
+            # never enough — wait out a meaningful slice of the window.
+            time.sleep([20, 40, 65][attempt])
+            continue
+        if r.status in (500, 502, 503, 504) and attempt < 3:
+            time.sleep(2 ** attempt)
+            continue
+        raise TwentyError(f"{r.status} {path}: {snippet}")
     raise TwentyError("unreachable")
 
 
@@ -104,26 +130,46 @@ def opportunities(tok=None):
     return recs
 
 
+_TL_CACHE = {}
+_TL_LOCK = threading.Lock()
+_TL_TTL = 90
+
+
 def opportunity_timeline(since_iso, tok=None, ids=None):
     """Opportunity timeline entries (creates and edits) since `since_iso`.
 
     Each carries `properties.diff` (edits) or `properties.after` (creates), so
     this is Twenty's own record of when a deal reached a stage - it does not
-    depend on the bot having been running, or on the deal being submitted."""
+    depend on the bot having been running, or on the deal being submitted.
+    A report reads it twice (quotes, then closed won) for the same window, so
+    results are cached briefly; id batches are fetched in parallel."""
+    key = (since_iso, tuple(sorted(i for i in (ids or []) if i)) if ids else None)
+    with _TL_LOCK:
+        hit = _TL_CACHE.get(key)
+        if hit and time.time() - hit[0] < _TL_TTL:
+            return list(hit[1])
     if ids:
         # The new Twenty holds every team's deal history; asking only for our
         # deals keeps the query small and under the page cap.
-        out, ids = [], [i for i in dict.fromkeys(ids) if i]
-        for i in range(0, len(ids), 40):
-            out += find_many("timelineActivities",
-                             {"filter": f'and(targetOpportunityId[in]:[{",".join(ids[i:i + 40])}],'
-                                        f'happensAt[gte]:"{since_iso}")'},
-                             tok=tok, max_pages=100)
-        return out
-    return find_many("timelineActivities",
-                     {"filter": f'and(targetOpportunityId[is]:NOT_NULL,'
-                                f'happensAt[gte]:"{since_iso}")'},
-                     tok=tok, max_pages=100)
+        ids = [i for i in dict.fromkeys(ids) if i]
+        batches = [ids[i:i + 40] for i in range(0, len(ids), 40)]
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            parts = ex.map(lambda b: find_many(
+                "timelineActivities",
+                {"filter": f'and(targetOpportunityId[in]:[{",".join(b)}],'
+                           f'happensAt[gte]:"{since_iso}")'},
+                tok=tok, max_pages=100), batches)
+            out = [t for part in parts for t in part]
+    else:
+        out = find_many("timelineActivities",
+                        {"filter": f'and(targetOpportunityId[is]:NOT_NULL,'
+                                   f'happensAt[gte]:"{since_iso}")'},
+                        tok=tok, max_pages=100)
+    with _TL_LOCK:
+        for k in [k for k, v in _TL_CACHE.items() if time.time() - v[0] >= _TL_TTL]:
+            _TL_CACHE.pop(k, None)
+        _TL_CACHE[key] = (time.time(), out)
+    return list(out)
 
 
 def companies_by_id(ids, tok=None, chunk=30):

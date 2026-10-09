@@ -39,12 +39,26 @@ def _many(obj, flt):
     return out
 
 
+_TL = {}
+
+
 def timeline(since_iso, ids):
-    out, ids = [], [i for i in dict.fromkeys(ids) if i]
-    for i in range(0, len(ids), 40):
-        out += _many("timelineActivities",
-                     f'and(targetOpportunityId[in]:[{",".join(ids[i:i + 40])}],happensAt[gte]:"{since_iso}")')
-    return out
+    # Old-Twenty history never changes, so cache it per window for 10 minutes.
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    ids = [i for i in dict.fromkeys(ids) if i]
+    key = (since_iso, tuple(sorted(ids)))
+    hit = _TL.get(key)
+    if hit and time.time() - hit[0] < 600:
+        return list(hit[1])
+    batches = [ids[i:i + 40] for i in range(0, len(ids), 40)]
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        out = [t for part in ex.map(lambda b: _many(
+            "timelineActivities",
+            f'and(targetOpportunityId[in]:[{",".join(b)}],happensAt[gte]:"{since_iso}")'), batches)
+            for t in part]
+    _TL[key] = (time.time(), out)
+    return list(out)
 
 
 def owners():
