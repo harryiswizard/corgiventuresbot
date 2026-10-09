@@ -168,6 +168,19 @@ def people_by_id(pid, tok=None):
         return None
 
 
+def broker_label(bid, tok=None):
+    """A deal's broker contact (new Twenty `brokers`): name, else email."""
+    if not bid:
+        return None
+    try:
+        rec = get(f"/brokers/{bid}", tok=tok).get("data", {}).get("broker") or {}
+    except TwentyError:
+        return None
+    nm = rec.get("name") or {}
+    full = " ".join(x for x in [nm.get("firstName"), nm.get("lastName")] if x).strip()
+    return full or (rec.get("emails") or {}).get("primaryEmail") or None
+
+
 def patch(path, body, tok=None):
     """PATCH a single record, e.g. patch('/opportunities/<id>', {'stage': 'QUOTE_SENT'})."""
     tok = tok or token()

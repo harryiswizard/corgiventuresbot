@@ -449,7 +449,17 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
 
     lines = [header, ""]
     company = company_field(opp, ctx, "name")
-    if company:
+    if tw.TEAM_ID:
+        # New Twenty: the broker firm that submitted the deal is its Partner.
+        if company:
+            purl = f"{cfg['app_base_url'].rstrip('/')}/object/brokerFirm/{opp['companyId']}"
+            lines.append(f'\U0001f91d Partner: <b><a href="{purl}">{esc(company)}</a></b>')
+        else:
+            lines.append("\U0001f91d Partner: <i>not set in Twenty</i>")
+        broker = tw.broker_label(opp.get("brokerId"))
+        if broker:
+            lines.append(f"\U0001f464 Broker: {esc(broker)}")
+    elif company:
         lines.append(f"\U0001f3e2 {esc(company)}")
     lines.append(f"\U0001f3af Deal: <b>{esc(deal_title(opp, ctx))}</b>")
     ctype = company_field(opp, ctx, "type")
