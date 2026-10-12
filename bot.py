@@ -1053,7 +1053,9 @@ def cmd_closed(cfg, caches):
     lines = [f"\U0001f4e5 <b>Submissions \u2014 {len(opps)}</b>"]
     lines += leaderboard(sub_n, limit=20)
     total = sum(won_v.values())
-    lines += ["", f"\U0001f4b0 <b>Closed won \u2014 {sum(won_n.values())} \u00b7 {fmt_money(total)}</b>"]
+    n_won = sum(won_n.values())
+    lines += ["", f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
+              f"{n_won} deal{'s' if n_won != 1 else ''}"]
     if won_n:
         ranked = sorted(won_n, key=lambda k: (-won_v[k], -won_n[k], k))
         for i, rep in enumerate(ranked[:20]):
