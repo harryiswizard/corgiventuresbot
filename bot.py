@@ -819,7 +819,10 @@ def poll_once(cfg, tg, state, caches, seed=False):
             # half-filled form someone has only just opened.
             state[oid] = {"stage": opp.get("stage"), "name": opp.get("name"),
                           "pipeline": opp.get("pipeline"),
-                          "announced": bool(seed),
+                          # A seed (fresh host, new workspace) records live deals
+                          # quietly, but drafts stay held so they still go out
+                          # when someone ticks Submitted.
+                          "announced": bool(seed and is_submitted(opp, cfg)[0]),
                           "submitted": bool(opp.get(cfg.get("submitted_field")
                                                     or "submitted")),
                           "first_seen": now_local(cfg).isoformat(timespec="seconds"),
@@ -878,7 +881,7 @@ def poll_once(cfg, tg, state, caches, seed=False):
         state[oid] = {"stage": opp.get("stage"), "name": deal_title(opp, ctx),
                       "pipeline": opp.get("pipeline"),
                       "owner": member(ctx, opp.get("ownerId")) or opp.get("hubspotOwner"),
-                      "announced": bool(seed or prev.get("announced", True)
+                      "announced": bool(prev.get("announced", True)
                                         or oid in announced_now),
                       "submitted": bool(opp.get(cfg.get("submitted_field")
                                                 or "submitted")),
@@ -937,7 +940,7 @@ COMMANDS = [
     ("monthly", "Last 30 days"),
     ("pipeline", "Deal counts and value by stage now"),
     ("quotes", "Who has sent quotes: rep leaderboard"),
-    ("closed", "Closed won total and rep leaderboard"),
+    ("closed", "Submissions and closed won leaderboards"),
 ]
 _BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
 HELP = ("<b>Twenty deal bot</b>\n"
@@ -1035,41 +1038,29 @@ def cmd_quotes(cfg, caches):
 
 
 def cmd_closed(cfg, caches):
-    """Closed Won business: the total, then reps ranked by amount won."""
-    opps = [o for o in tw.opportunities()
-            if watched(o, cfg) and o.get("stage") == "CLOSED_WON"]
-    if not opps:
-        return "\U0001f4b0 <b>Closed won</b>\n\nNothing closed won yet."
+    """Two short leaderboards: submissions per rep, and closed won per rep.
+    Counts and money only - no deal lists (Harry 2026-10-12)."""
+    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
     ctx = build_ctx(opps, caches)
-    by_rep, values = {}, {}
+    sub_n, sub_v, won_n, won_v = {}, {}, {}, {}
     for o in opps:
-        rep = rep_of(ctx, o)
-        by_rep.setdefault(rep, []).append(o)
-        values[rep] = values.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
-
-    total = sum(values.values())
-    ranked = sorted(by_rep, key=lambda k: (-values[k], -len(by_rep[k]), k))
-    lines = [f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
-             f"{len(opps)} deal{'s' if len(opps) != 1 else ''}",
-             "", "\U0001f3c6 <b>Leaderboard</b>"]
-    for i, rep in enumerate(ranked[:20]):
-        badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
-        n = len(by_rep[rep])
-        lines.append(f"   {badge} {esc(rep)} \u2014 <b>{fmt_money(values[rep])}</b>"
-                     f" \u00b7 {n} deal{'s' if n != 1 else ''}")
-    if len(ranked) > 20:
-        lines.append(f"   \u2026 and {len(ranked) - 20} more")
-    unpriced = sum(1 for o in opps if amount_value(o.get("amount")) is None)
-    if unpriced:
-        lines.append(f"\n\u26a0\ufe0f {unpriced} closed deal{'s have' if unpriced != 1 else ' has'}"
-                     " no Amount in Twenty")
-
-    for rep in ranked:
-        lines.append(f"\n<b>{esc(rep)}</b> ({len(by_rep[rep])})")
-        for o in sorted(by_rep[rep], key=lambda o: -(amount_value(o.get("amount")) or 0)):
-            who = company_field(o, ctx, "name") or deal_title(o, ctx)
-            amt = amount_value(o.get("amount"))
-            lines.append(f"   {esc(who[:44])}" + (f" \u00b7 {fmt_money(amt)}" if amt else ""))
+        rep, val = rep_of(ctx, o), amount_value(o.get("amount")) or 0.0
+        sub_n[rep] = sub_n.get(rep, 0) + 1
+        sub_v[rep] = sub_v.get(rep, 0.0) + val
+        if o.get("stage") == "CLOSED_WON":
+            won_n[rep] = won_n.get(rep, 0) + 1
+            won_v[rep] = won_v.get(rep, 0.0) + val
+    lines = [f"\U0001f4e5 <b>Submissions \u2014 {len(opps)}</b>"]
+    lines += leaderboard(sub_n, limit=20)
+    total = sum(won_v.values())
+    lines += ["", f"\U0001f4b0 <b>Closed won \u2014 {sum(won_n.values())} \u00b7 {fmt_money(total)}</b>"]
+    if won_n:
+        ranked = sorted(won_n, key=lambda k: (-won_v[k], -won_n[k], k))
+        for i, rep in enumerate(ranked[:20]):
+            badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+            lines.append(f"   {badge} {esc(rep)} \u2014 <b>{won_n[rep]}</b> \u00b7 {fmt_money(won_v[rep])}")
+    else:
+        lines.append("   Nothing closed won yet.")
     return "\n".join(lines)
 
 
