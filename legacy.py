@@ -13,7 +13,10 @@ _OWNERS = None
 
 
 def available():
-    return bool(os.environ.get("TWENTY_TEAM_ID")) and os.path.exists(TOKEN_FILE)
+    # Off since 2026-10-12: the new Twenty is the only source of truth (Harry).
+    # The old workspace is now "Leads Twenty" and its key 403s here.
+    return (os.environ.get("TWENTY_LEGACY") == "1" and bool(os.environ.get("TWENTY_TEAM_ID"))
+            and os.path.exists(TOKEN_FILE))
 
 
 def _get(path, params):

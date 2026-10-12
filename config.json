@@ -29,5 +29,7 @@
   "_hidden_stages": "Stages the bot ignores: no pings, left out of /pipeline, /deals, /quotes and reports.",
   "hidden_stages": [
     "CLOSED_LOST"
-  ]
+  ],
+  "_history_since": "Reports ignore Twenty timeline/creates before this: the old->new Twenty migration copied and re-staged deals in bulk on 6-7 Oct.",
+  "history_since": "2026-10-08T00:00:00+00:00"
 }

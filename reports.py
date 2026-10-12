@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """/daily, /weekly and /monthly digests.
 
-Movements come from the event log the poller appends to (state/events.jsonl).
-Money is read live from Twenty rather than from the event, because an amount is
-usually typed in after the deal has been moved.
+Everything about deals comes from Twenty: stage arrivals from its timeline,
+new deals from createdAt, money and the pipeline snapshot from the live records.
+The bot's own event log (state/events.jsonl) only feeds the appointed-Partner
+line. Harry 2026-10-12: Twenty is the source of truth, not the bot's records.
 """
 import html, json, os
 from datetime import datetime, timedelta, timezone
@@ -69,6 +70,12 @@ def load_events(cfg, start, end):
                 ev["_ts"] = ts
                 out.append(ev)
     return out
+
+
+def by_stage_ok(counts):
+    """Stages shown in reports: every live stage except the hidden ones."""
+    from stages import HIDDEN_STAGES
+    return (set(STAGE_ORDER) | set(counts)) - set(HIDDEN_STAGES)
 
 
 def _watched(opp, cfg):
@@ -140,26 +147,32 @@ def _reached(entry, stage):
     return (props.get("after") or {}).get(instance.STAGE_FIELD) == stage
 
 
-def reached_stage(cfg, start, end, by_id, stage):
-    """[(opp, when)] for every deal that landed on `stage` in the window.
+def _since(cfg, start):
+    """Window start, clamped to `history_since`: timeline entries before it are
+    the old->new Twenty migration (copies created and set to their stage in bulk
+    on 6-7 Oct), not reps moving deals."""
+    floor = cfg.get("history_since")
+    if floor:
+        f = datetime.fromisoformat(floor)
+        if f > start:
+            return f
+    return start
 
-    Read from Twenty's timeline, not the bot's event log: most quotes are
-    keyed straight in at Quote Sent (a new-deal card, not a stage move), and
-    deals nobody ticked "submitted" never reach the event log at all.
-    A deal created straight at `stage` has an empty create entry in the new
-    Twenty, so its starting stage is taken from its first stage edit (or its
-    current stage if it was never edited)."""
-    first = {}
+
+def arrivals(cfg, start, end, by_id):
+    """{stage: {deal id: when}} - the first time in the window each deal landed
+    on each stage, from Twenty's own timeline.
+
+    Most quotes are keyed straight in at Quote Sent (a create, not a move), so a
+    deal created at a stage counts as reaching it. A deal created straight at a
+    stage has an empty create entry in the new Twenty, so its starting stage is
+    taken from its first stage edit (or its current stage if never edited)."""
+    start = _since(cfg, start)
+    out = {}
+    if start > end or not by_id:
+        return out
     since = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
     tl = tw.opportunity_timeline(since, ids=list(by_id) if tw.TEAM_ID else None)
-    import legacy
-    if legacy.available():
-        # History from before the move to the new Twenty (same deal ids).
-        try:
-            tl = tl + legacy.timeline(since, list(by_id))
-        except Exception as e:
-            import bot
-            bot.log(f"old-Twenty timeline failed: {e}")
     created, first_before = {}, {}
     for t in sorted(tl, key=lambda t: t.get("happensAt") or ""):
         oid = t.get("targetOpportunityId")
@@ -168,6 +181,8 @@ def reached_stage(cfg, start, end, by_id, stage):
         try:
             when = datetime.fromisoformat(t["happensAt"].replace("Z", "+00:00"))
         except (KeyError, ValueError):
+            continue
+        if not (start <= when <= end):
             continue
         name = (t.get("timelineActivityTypeSnapshot") or {}).get("name") or t.get("name") or ""
         props = t.get("properties") or {}
@@ -178,20 +193,38 @@ def reached_stage(cfg, start, end, by_id, stage):
                 props = {}
         d = (props.get("diff") or {}).get(instance.STAGE_FIELD)
         if name.endswith("Created") or name.endswith(".created"):
-            made = (by_id.get(oid) or {}).get("createdBy") or {}
-            if made.get("source") != "IMPORT" and "import" not in (made.get("name") or "").lower() \
-                    and "migration" not in (made.get("name") or "").lower():
-                # An imported copy was not created "at" its stage on import day.
-                created.setdefault(oid, when)
+            created.setdefault(oid, when)
         if d and oid not in first_before:
             first_before[oid] = d.get("before")
-        if _reached(t, stage) and start <= when <= end and (oid not in first or when < first[oid]):
-            first[oid] = when
+        for st in {d.get("after") if d else None,
+                   (props.get("after") or {}).get(instance.STAGE_FIELD)} - {None}:
+            if _reached(t, st):
+                out.setdefault(st, {}).setdefault(oid, when)
     for oid, when in created.items():
-        start_stage = first_before.get(oid, (by_id.get(oid) or {}).get("stage"))
-        if start_stage == stage and start <= when <= end and oid not in first:
-            first[oid] = when
-    return [(by_id[o], w) for o, w in first.items()]
+        st = first_before.get(oid, (by_id.get(oid) or {}).get("stage"))
+        if st:
+            out.setdefault(st, {}).setdefault(oid, when)
+    return out
+
+
+def reached_stage(cfg, start, end, by_id, stage):
+    """[(opp, when)] for every deal that landed on `stage` in the window."""
+    hits = arrivals(cfg, start, end, by_id).get(stage) or {}
+    return [(by_id[o], w) for o, w in hits.items()]
+
+
+def new_deals(cfg, start, end, by_id):
+    """Deals created in Twenty in the window (migration copies excluded)."""
+    start = _since(cfg, start)
+    out = []
+    for o in by_id.values():
+        try:
+            made = datetime.fromisoformat((o.get("createdAt") or "").replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if start <= made <= end:
+            out.append(o)
+    return out
 
 
 def quotes_sent(cfg, start, end, by_id):
@@ -223,58 +256,39 @@ def quotes_section(cfg, start, end, by_id, caches, sent_evs):
 def report(cfg, period, caches=None):
     start, end, title = window(cfg, period)
     evs = load_events(cfg, start, end)
-    moves = [e for e in evs if e.get("kind") == "stage" and not e.get("bulk")]
-    bulk = [e for e in evs if e.get("kind") == "stage" and e.get("bulk")]
-    new = [e for e in evs if e.get("kind") == "new"]
-    gone = [e for e in evs if e.get("kind") == "removed"]
     appointed = [e for e in evs if e.get("kind") == "appointed"]
     unappointed = [e for e in evs if e.get("kind") == "unappointed"]
 
-    try:
-        counts, total, values, by_id = snapshot(cfg)
-    except tw.TwentyError as e:
-        counts, total, values, by_id = {}, 0, {}, {}
-        snapshot_error = str(e)
-    else:
-        snapshot_error = None
-        # Deals deleted since (e.g. the 23 Sep wipe) drop out of every count.
-        moves = [e for e in moves if e.get("id") in by_id]
-
     label = {"daily": "Daily", "weekly": "Weekly",
              "monthly": "Monthly"}.get(period, "Report")
-    lines = [f"<b>{label} — {title}</b>"]
+    lines = [f"<b>{label} \u2014 {title}</b>"]
+    try:
+        counts, total, values, by_id = snapshot(cfg)
+        arr = arrivals(cfg, start, end, by_id)
+    except tw.TwentyError as e:
+        lines.append(f"\n(Twenty unavailable: {html.escape(str(e))})")
+        return "\n".join(lines)
 
-    # Headline money: what was won, and what was quoted out, in the period.
-    # One per deal, and only deals still Closed Won in Twenty: a deal moved
-    # to Closed Won and then moved back or deleted is not closed business.
-    # A deal submitted straight at Closed Won is logged as kind "new", not a
-    # stage move; it is still a win.
-    won_evs = list({e.get("id"): e for e in moves + new
-                    if e.get("to") == "CLOSED_WON"
-                    and (snapshot_error or (by_id.get(e.get("id")) or {}).get("stage")
-                         == "CLOSED_WON")}.values())
-    if not snapshot_error:
-        try:
-            seen = {e.get("id") for e in won_evs}
-            for o, when in reached_stage(cfg, start, end, by_id, "CLOSED_WON"):
-                if o["id"] not in seen and o.get("stage") == "CLOSED_WON":
-                    won_evs.append({"id": o["id"], "to": "CLOSED_WON", "name": o.get("name")})
-        except tw.TwentyError as e:
-            import bot
-            bot.log(f"won timeline failed, using the event log only: {e}")
-    sent_evs = [e for e in moves if e.get("to") == "QUOTE_SENT"]
-    if won_evs:
-        val, cur, _ = period_value(won_evs, by_id)
-        lines.append(f"\n{TROPHY} <b>Closed won: {len(won_evs)} · "
-                     f"{fmt_money(val, cur)}</b>"
-                     )
-    if not snapshot_error:
-        lines += [""] * (not won_evs) + quotes_section(cfg, start, end, by_id,
-                                                        caches, sent_evs)
+    import bot
+    ctx = bot.build_ctx([], caches or ({}, {}))
 
-    if bulk:
-        lines.append(f"\n<i>{len(bulk)} deal(s) moved by a pipeline edit in Twenty, "
-                     f"not by a rep \u2014 left out of the counts below.</i>")
+    # Closed won: deals that reached Closed Won in the window and are still
+    # there now (moved back or deleted = not closed business).
+    won = [{"id": oid, "to": "CLOSED_WON"} for oid in (arr.get("CLOSED_WON") or {})
+           if by_id[oid].get("stage") == "CLOSED_WON"]
+    if won:
+        val, cur, _ = period_value(won, by_id)
+        lines.append(f"\n{TROPHY} <b>Closed won: {len(won)} \u00b7 {fmt_money(val, cur)}</b>")
+        tally, rep_value = {}, {}
+        for e in won:
+            o = by_id[e["id"]]
+            rep = bot.rep_of(ctx, o)
+            tally[rep] = tally.get(rep, 0) + 1
+            rep_value[rep] = rep_value.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
+        lines += leaderboard(tally, rep_value)
+    else:
+        lines.append("")
+    lines += quotes_section(cfg, start, end, by_id, caches, [])
 
     if cfg.get("show_appointments", True):
         lines.append(f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>")
@@ -287,51 +301,43 @@ def report(cfg, period, caches=None):
     if unappointed and cfg.get("show_appointments", True):
         lines.append(f"\u21a9 <b>Appointments removed: {len(unappointed)}</b>")
 
-    if moves:
-        by_stage = {}
-        for e in moves:  # a deal counts once per stage it reached
-            by_stage.setdefault(e.get("to"), {})[e.get("id")] = e
-        by_stage = {k: list(v.values()) for k, v in by_stage.items()}
-        lines.append(f"\n<b>Stage changes: {len(moves)}</b>")
-        for s in sorted(by_stage, key=stage_rank):
-            val, cur = _value_of(by_stage[s], by_id)
+    moved = {st: hits for st, hits in arr.items() if st in by_stage_ok(counts)}
+    n_moves = sum(len(h) for h in moved.values())
+    if n_moves:
+        lines.append(f"\n<b>Reached stage: {n_moves}</b>")
+        for s in sorted(moved, key=stage_rank):
+            evs_s = [{"id": oid} for oid in moved[s]]
+            val, cur = _value_of(evs_s, by_id)
             money = f" \u00b7 {fmt_money(val, cur)}" if val else ""
             lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {ARROW} {stage_label(s)}: "
-                         f"<b>{len(by_stage[s])}</b>{money}")
+                         f"<b>{len(evs_s)}</b>{money}")
     else:
-        lines.append("\nNo stage changes in this period.")
+        lines.append("\nNo deals reached a stage in this period.")
 
-    if new:
-        lines.append(f"\n{NEW} <b>New deals: {len(new)}</b>")
-    if gone:
-        lines.append(f"\n{BIN} <b>Left the pipeline: {len(gone)}</b>")
+    fresh = new_deals(cfg, start, end, by_id)
+    if fresh:
+        lines.append(f"\n{NEW} <b>New deals: {len(fresh)}</b>")
 
-    if moves and period in ("weekly", "monthly"):
+    if n_moves and period in ("weekly", "monthly"):
         by_owner = {}
-        for e in moves:
-            k = e.get("owner") or "Unassigned"
-            by_owner[k] = by_owner.get(k, 0) + 1
+        for hits in moved.values():
+            for oid in hits:
+                k = bot.rep_of(ctx, by_id[oid])
+                by_owner[k] = by_owner.get(k, 0) + 1
         top = sorted(by_owner.items(), key=lambda x: -x[1])[:8]
-        lines.append("\n<b>By owner</b>\n   " +
-                     " · ".join(f"{html.escape(k)} {v}" for k, v in top))
+        lines.append("\n<b>By rep</b>\n   " +
+                     " \u00b7 ".join(f"{html.escape(k)} {v}" for k, v in top))
 
-    if snapshot_error:
-        lines.append(f"\n(Pipeline snapshot unavailable: {html.escape(snapshot_error)})")
-    else:
-        order = list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER]
-        lines.append(f"\n<b>Pipeline now</b> — {total} deals")
-        for s in order:
-            lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {stage_label(s)}: "
-                         f"<b>{counts.get(s, 0)}</b> · {fmt_money(values.get(s) or 0)}")
-        open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
-        lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
-
+    order = list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER]
+    lines.append(f"\n<b>Pipeline now</b> \u2014 {total} deals")
+    for s in order:
+        lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {stage_label(s)}: "
+                     f"<b>{counts.get(s, 0)}</b> \u00b7 {fmt_money(values.get(s) or 0)}")
+    open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
+    lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
 
     if cfg.get("show_appointments", True):
         lines.append("")
         lines.append(appointments_line(cfg))
 
-    if not os.path.exists(EVENTS_FILE):
-        lines.append("\n<i>No event history yet — movements are logged from the "
-                     "moment the bot started.</i>")
     return "\n".join(lines)
