@@ -274,8 +274,20 @@ def report(cfg, period, caches=None):
 
     # Closed won: deals that reached Closed Won in the window and are still
     # there now (moved back or deleted = not closed business).
-    won = [{"id": oid, "to": "CLOSED_WON"} for oid in (arr.get("CLOSED_WON") or {})
-           if by_id[oid].get("stage") == "CLOSED_WON"]
+    # Closed won in the period = Closed Won deals whose Close date in Twenty
+    # falls in it (a future Close date counts from today). No Close date: the
+    # day it landed on Closed Won, from the timeline.
+    landed = arr.get("CLOSED_WON") or {}
+    won = []
+    for o in by_id.values():
+        if o.get("stage") != "CLOSED_WON":
+            continue
+        try:
+            when = datetime.fromisoformat((o.get("closeDate") or "").replace("Z", "+00:00"))
+        except ValueError:
+            when = landed.get(o["id"])
+        if when and when >= start:
+            won.append({"id": o["id"], "to": "CLOSED_WON"})
     if won:
         val, cur, _ = period_value(won, by_id)
         lines.append(f"\n{TROPHY} <b>Closed won: {len(won)} \u00b7 {fmt_money(val, cur)}</b>")
@@ -335,6 +347,8 @@ def report(cfg, period, caches=None):
                      f"<b>{counts.get(s, 0)}</b> \u00b7 {fmt_money(values.get(s) or 0)}")
     open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
     lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
+    lines.append(f"Closed won to date: <b>{counts.get('CLOSED_WON', 0)} \u00b7 "
+                 f"{fmt_money(values.get('CLOSED_WON') or 0)}</b>")
 
     if cfg.get("show_appointments", True):
         lines.append("")
