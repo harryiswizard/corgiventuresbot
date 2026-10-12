@@ -45,8 +45,9 @@ def window(cfg, period):
         start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         title = now.strftime("%A %-d %B")
     else:
-        start = (now - timedelta(days=days)).replace(hour=0, minute=0,
-                                                     second=0, microsecond=0)
+        # "Last 7 days" = today and the 6 days before it, same as the dashboards.
+        start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0,
+                                                         second=0, microsecond=0)
     return start, now, title
 
 
