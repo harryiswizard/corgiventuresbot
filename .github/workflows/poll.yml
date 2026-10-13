@@ -22,8 +22,7 @@ permissions:
 
 jobs:
   poll:
-    # Off while the E&S bot runs on Harry's Mac off the new Twenty key (2026-10-07).
-    # To move it back: add secret TWENTY_TOKEN_LONDON + variable ES_BOT_ON_GITHUB=true.
+    # On GitHub since 2026-10-12 (laptop-off). Mac LaunchAgents must stay unloaded.
     if: vars.ES_BOT_ON_GITHUB == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 355
@@ -41,8 +40,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: state
-          key: twenty-bot-state-v2-${{ github.run_id }}
-          restore-keys: twenty-bot-state-v2-
+          key: twenty-bot-state-london-v1-${{ github.run_id }}
+          restore-keys: twenty-bot-state-london-v1-
 
       # One-off handoff from the Mac: an encrypted copy of its state, used
       # only when the cache has nothing newer. Removed once the cache is warm.
@@ -74,7 +73,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: state
-          key: twenty-bot-state-v2-${{ github.run_id }}
+          key: twenty-bot-state-london-v1-${{ github.run_id }}
 
       # Last on purpose: the successor cancels whatever is still running.
       - name: Start the next run

@@ -17,8 +17,7 @@ permissions:
 
 jobs:
   digest:
-    # Off while the E&S bot runs on Harry's Mac off the new Twenty key (2026-10-07).
-    # To move it back: add secret TWENTY_TOKEN_LONDON + variable ES_BOT_ON_GITHUB=true.
+    # On GitHub since 2026-10-12 (laptop-off). Mac LaunchAgents must stay unloaded.
     if: vars.ES_BOT_ON_GITHUB == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +32,7 @@ jobs:
         with:
           path: state
           key: twenty-bot-state-digest-${{ github.run_id }}
-          restore-keys: twenty-bot-state-v2-
+          restore-keys: twenty-bot-state-london-v1-
 
       - name: Pick period
         id: p
