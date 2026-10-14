@@ -1240,6 +1240,11 @@ def main():
     cfg = load_config()
     tg = tg_config()
     state = load_json(STATE_FILE, {})
+    # Stage values remembered under a since-renamed name (see tw.STAGE_ALIASES)
+    # would otherwise read as a move back on the next poll.
+    for rec in state.values():
+        if isinstance(rec, dict) and rec.get("stage") in tw.STAGE_ALIASES:
+            rec["stage"] = tw.STAGE_ALIASES[rec["stage"]]
     caches = ({}, {})
     # Moving to another Twenty workspace: deals the bot has never seen there
     # are recorded silently on the first poll instead of announced as new.

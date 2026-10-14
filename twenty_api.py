@@ -107,6 +107,16 @@ def find_many(obj, params=None, page_size=60, tok=None, max_pages=200):
     return out
 
 
+# Stage values renamed in Twenty, mapped back to the value the bot keys on.
+# QUOTE_SENT became QUOTED on 2026-10-14 (~11:06 UTC); without this the rename
+# read as ~150 stage moves and pinged every quoted deal.
+STAGE_ALIASES = {"QUOTED": "QUOTE_SENT"}
+
+
+def _canon(stage):
+    return STAGE_ALIASES.get(stage, stage)
+
+
 def opportunities(tok=None):
     """Every opportunity, with `stage` taken from this bot's stage field.
 
@@ -127,6 +137,8 @@ def opportunities(tok=None):
         for o in recs:
             own = o.get(instance.STAGE_FIELD)
             o["stage"] = own or shared.get(o.get("stage"), o.get("stage"))
+    for o in recs:
+        o["stage"] = _canon(o.get("stage"))
     return recs
 
 
@@ -165,6 +177,16 @@ def opportunity_timeline(since_iso, tok=None, ids=None):
                         {"filter": f'and(targetOpportunityId[is]:NOT_NULL,'
                                    f'happensAt[gte]:"{since_iso}")'},
                         tok=tok, max_pages=100)
+    for t in out:
+        props = t.get("properties") or {}
+        st = (props.get("diff") or {}).get("stage")
+        if isinstance(st, dict):
+            for side in ("before", "after"):
+                if side in st:
+                    st[side] = _canon(st[side])
+        after = props.get("after")
+        if isinstance(after, dict) and "stage" in after:
+            after["stage"] = _canon(after["stage"])
     with _TL_LOCK:
         for k in [k for k, v in _TL_CACHE.items() if time.time() - v[0] >= _TL_TTL]:
             _TL_CACHE.pop(k, None)
