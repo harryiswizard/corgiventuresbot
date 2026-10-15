@@ -936,8 +936,8 @@ def poll_once(cfg, tg, state, caches, seed=False):
 COMMANDS = [
     ("deals", "Every deal and the stage it sits on"),
     ("daily", "Today's stage changes and closed business"),
-    ("weekly", "Last 7 days"),
-    ("monthly", "Last 30 days"),
+    ("weekly", "This week (since Monday)"),
+    ("monthly", "This month (since the 1st)"),
     ("pipeline", "Deal counts and value by stage now"),
     ("quotes", "Who has sent quotes: rep leaderboard"),
     ("closed", "Submissions and closed won leaderboards"),
@@ -979,8 +979,9 @@ def appointments_line(cfg):
     except tw.TwentyError as e:
         return f"\U0001f91d <b>Appointments</b>: lookup failed ({html.escape(str(e))})"
 
-    recent = {7: 0, 30: 0}
-    cutoffs = {d: now_local(cfg) - timedelta(days=d) for d in recent}
+    import reports
+    recent = {"weekly": 0, "monthly": 0}
+    cutoffs = {p: reports.period_start(now_local(cfg), p) for p in recent}
     if os.path.exists(EVENTS_FILE):
         with open(EVENTS_FILE) as f:
             for line in f:
@@ -999,7 +1000,7 @@ def appointments_line(cfg):
 
     out = f"\U0001f91d <b>Appointed agencies: {len(appointed)}</b>"
     if any(recent.values()):
-        out += f"\n   {recent[7]} in the last 7 days \u00b7 {recent[30]} in the last 30"
+        out += f"\n   {recent['weekly']} this week \u00b7 {recent['monthly']} this month"
 
     return out
 

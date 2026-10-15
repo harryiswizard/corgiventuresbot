@@ -81,8 +81,8 @@ is the number being reported on.
 | Command | What you get |
 |---|---|
 | `/daily` | Today: closed won and quotes sent with values, every stage change, pipeline now |
-| `/weekly` | Last 7 days, plus per-owner and per-day breakdowns |
-| `/monthly` | Last 30 days, same shape |
+| `/weekly` | This week since Monday 00:00, plus per-owner and per-day breakdowns |
+| `/monthly` | This month since the 1st, same shape |
 | `/pipeline` | Deal counts and value by stage right now |
 | `/quotes` | Every deal a quote has gone out on, by rep, with a leaderboard |
 

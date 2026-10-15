@@ -24,8 +24,7 @@ OUTBOX = "\U0001f4e4"
 NEW = "\U0001f195"
 BIN = "\U0001f5d1"
 
-PERIODS = {"daily": ("Today", 0), "weekly": ("Last 7 days", 7),
-           "monthly": ("Last 30 days", 30)}
+PERIODS = {"daily": "Today", "weekly": "This week", "monthly": "This month"}
 MAX_NAMES = 8          # deals listed per stage before the rest are summarised
 
 
@@ -37,17 +36,28 @@ def _tz(cfg):
         return None
 
 
+def period_start(now, period):
+    """Calendar start of the period: midnight today, Monday this week, the 1st."""
+    start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if period == "weekly":
+        start -= timedelta(days=start.weekday())
+    elif period == "monthly":
+        start = start.replace(day=1)
+    return start
+
+
 def window(cfg, period):
     """(start, end, title) in the configured timezone."""
     now = datetime.now(_tz(cfg))
-    title, days = PERIODS.get(period, PERIODS["daily"])
+    if period not in PERIODS:
+        period = "daily"
+    start = period_start(now, period)
     if period == "daily":
-        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         title = now.strftime("%A %-d %B")
+    elif period == "weekly":
+        title = f"Week of {start.strftime('%a %-d %b')}"
     else:
-        # "Last 7 days" = today and the 6 days before it, same as the dashboards.
-        start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0,
-                                                         second=0, microsecond=0)
+        title = now.strftime("%B %Y")
     return start, now, title
 
 
