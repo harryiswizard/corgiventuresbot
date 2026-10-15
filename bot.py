@@ -15,6 +15,7 @@ Modes:
                                      one run per cron tick, polling throughout)
     python3 bot.py serve             resident loop, instant replies
     python3 bot.py report daily      post a digest for a period and exit
+                                     (add "previous" for the last complete period)
     python3 bot.py seed              record current stages without notifying
 
 Credentials (env var first, so GitHub Actions secrets work, then local file):
@@ -1264,7 +1265,9 @@ def main():
 
     if mode == "report":
         import reports
-        send(tg, reports.report(cfg, sys.argv[2] if len(sys.argv) > 2 else "daily", caches))
+        # "report weekly previous" = the last complete week (used by the Monday cron).
+        send(tg, reports.report(cfg, sys.argv[2] if len(sys.argv) > 2 else "daily", caches,
+                                previous="previous" in sys.argv[3:]))
         return
 
     if mode == "loop":

@@ -46,12 +46,20 @@ def period_start(now, period):
     return start
 
 
-def window(cfg, period):
-    """(start, end, title) in the configured timezone."""
+def window(cfg, period, previous=False):
+    """(start, end, title) in the configured timezone. previous=True gives the
+    last complete period instead (the scheduled Monday / 1st-of-month posts)."""
     now = datetime.now(_tz(cfg))
     if period not in PERIODS:
         period = "daily"
     start = period_start(now, period)
+    if previous:
+        now = start
+        start = period_start(start - timedelta(seconds=1), period)
+        if period == "daily":
+            return start, now, start.strftime("%A %-d %B")
+        if period == "monthly":
+            return start, now, start.strftime("%B %Y")
     if period == "daily":
         title = now.strftime("%A %-d %B")
     elif period == "weekly":
@@ -264,8 +272,8 @@ def quotes_section(cfg, start, end, by_id, caches, sent_evs):
             + leaderboard(tally, rep_value))
 
 
-def report(cfg, period, caches=None):
-    start, end, title = window(cfg, period)
+def report(cfg, period, caches=None, previous=False):
+    start, end, title = window(cfg, period, previous)
     evs = load_events(cfg, start, end)
     appointed = [e for e in evs if e.get("kind") == "appointed"]
     unappointed = [e for e in evs if e.get("kind") == "unappointed"]

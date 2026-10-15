@@ -36,8 +36,8 @@ jobs:
         id: p
         run: |
           case "${{ github.event.schedule }}" in
-            "0 13 * * 1")   echo "period=weekly"  >> $GITHUB_OUTPUT ;;
-            "0 13 1 * *")   echo "period=monthly" >> $GITHUB_OUTPUT ;;
+            "0 13 * * 1")   echo "period=weekly previous"  >> $GITHUB_OUTPUT ;;
+            "0 13 1 * *")   echo "period=monthly previous" >> $GITHUB_OUTPUT ;;
             "0 21 * * 1-5") echo "period=daily"   >> $GITHUB_OUTPUT ;;
             *) echo "period=${{ github.event.inputs.period || 'daily' }}" >> $GITHUB_OUTPUT ;;
           esac
