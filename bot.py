@@ -1007,7 +1007,8 @@ def appointments_line(cfg):
 
 
 def cmd_quotes(cfg, caches):
-    """Every deal that has had a quote sent (Quote Sent or further on), by rep."""
+    """Quotes sent (Quote Sent or further on): total + rep leaderboard.
+    Counts and money only - no deal lists (Harry 2026-10-19)."""
     sent = stage_rank("QUOTE_SENT")
     opps = [o for o in tw.opportunities()
             if watched(o, cfg) and o.get("stage") in STAGE_ORDER
@@ -1026,16 +1027,6 @@ def cmd_quotes(cfg, caches):
              + (f" \u00b7 {fmt_money(total)}" if total else ""),
              "", "\U0001f3c6 <b>Leaderboard</b>"]
     lines += leaderboard({k: len(v) for k, v in by_rep.items()}, values, limit=20)
-
-    ranked = sorted(by_rep, key=lambda k: (-len(by_rep[k]), -values[k], k))
-    for rep in ranked:
-        lines.append(f"\n<b>{esc(rep)}</b> ({len(by_rep[rep])})")
-        for o in sorted(by_rep[rep], key=lambda o: o.get("updatedAt") or "", reverse=True):
-            who = company_field(o, ctx, "name") or deal_title(o, ctx)
-            won = " \U0001f3c6" if o.get("stage") == "CLOSED_WON" else ""
-            amt = amount_value(o.get("amount"))
-            amt = f" \u00b7 {fmt_money(amt)}" if amt else ""
-            lines.append(f"   {esc(who[:44])}{amt}{won}")
     return "\n".join(lines)
 
 
