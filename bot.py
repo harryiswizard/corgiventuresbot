@@ -422,9 +422,9 @@ MEDALS = ["\U0001f947", "\U0001f948", "\U0001f949"]
 
 def rep_hidden(name):
     """True for reps config "hidden_reps" drops from leaderboards (matched on
-    any word of the name, case-insensitive). Deal totals still count them."""
-    words = set(str(name or "").lower().split())
-    return any(h.lower() in words for h in load_config().get("hidden_reps") or [])
+    any part of the name, case-insensitive). Deal totals still count them."""
+    text = str(name or "").lower()
+    return any(h.lower() in text for h in load_config().get("hidden_reps") or [] if h)
 
 
 def leaderboard(tally, values=None, limit=10):
@@ -1057,6 +1057,7 @@ def cmd_closed(cfg, caches):
     n_won = sum(won_n.values())
     lines += ["", f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
               f"{n_won} deal{'s' if n_won != 1 else ''}"]
+    won_n = {k: v for k, v in won_n.items() if not rep_hidden(k)}
     if won_n:
         ranked = sorted(won_n, key=lambda k: (-won_v[k], -won_n[k], k))
         for i, rep in enumerate(ranked[:20]):
