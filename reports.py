@@ -326,6 +326,8 @@ def report(cfg, period, caches=None, previous=False):
     if appointed and cfg.get("show_appointments", True):
         by_rep = {}
         for e in appointed:
+            if bot.rep_hidden(e.get("by")):
+                continue
             by_rep[e.get("by") or "Unassigned"] = by_rep.get(e.get("by") or "Unassigned", 0) + 1
         lines.append("   " + " \u00b7 ".join(f"{html.escape(k)} {v}"
                                              for k, v in sorted(by_rep.items(), key=lambda x: -x[1])))
@@ -354,6 +356,8 @@ def report(cfg, period, caches=None, previous=False):
         for hits in moved.values():
             for oid in hits:
                 k = bot.rep_of(ctx, by_id[oid])
+                if bot.rep_hidden(k):
+                    continue
                 by_owner[k] = by_owner.get(k, 0) + 1
         top = sorted(by_owner.items(), key=lambda x: -x[1])[:8]
         lines.append("\n<b>By rep</b>\n   " +

@@ -420,9 +420,17 @@ def rep_of(ctx, opp):
 MEDALS = ["\U0001f947", "\U0001f948", "\U0001f949"]
 
 
+def rep_hidden(name):
+    """True for reps config "hidden_reps" drops from leaderboards (matched on
+    any word of the name, case-insensitive). Deal totals still count them."""
+    words = set(str(name or "").lower().split())
+    return any(h.lower() in words for h in load_config().get("hidden_reps") or [])
+
+
 def leaderboard(tally, values=None, limit=10):
     """Ranked rep lines: most quotes first, value breaks a tie."""
     values = values or {}
+    tally = {k: v for k, v in tally.items() if not rep_hidden(k)}
     ranked = sorted(tally, key=lambda k: (-tally[k], -(values.get(k) or 0), k))
     out = []
     for i, rep in enumerate(ranked[:limit]):
