@@ -427,11 +427,15 @@ def rep_hidden(name):
     return any(h.lower() in text for h in load_config().get("hidden_reps") or [] if h)
 
 
-def leaderboard(tally, values=None, limit=10):
-    """Ranked rep lines: most quotes first, value breaks a tie."""
+def leaderboard(tally, values=None, limit=10, by_value=False):
+    """Ranked rep lines: most deals first, value breaks a tie.
+    by_value=True ranks by $ value instead, count breaks a tie."""
     values = values or {}
     tally = {k: v for k, v in tally.items() if not rep_hidden(k)}
-    ranked = sorted(tally, key=lambda k: (-tally[k], -(values.get(k) or 0), k))
+    if by_value:
+        ranked = sorted(tally, key=lambda k: (-(values.get(k) or 0), -tally[k], k))
+    else:
+        ranked = sorted(tally, key=lambda k: (-tally[k], -(values.get(k) or 0), k))
     out = []
     for i, rep in enumerate(ranked[:limit]):
         badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."

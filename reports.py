@@ -316,7 +316,7 @@ def report(cfg, period, caches=None, previous=False):
             rep = bot.rep_of(ctx, o)
             tally[rep] = tally.get(rep, 0) + 1
             rep_value[rep] = rep_value.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
-        lines += leaderboard(tally, rep_value)
+        lines += leaderboard(tally, rep_value, by_value=True)
     else:
         lines.append("")
     lines += quotes_section(cfg, start, end, by_id, caches, [])
