@@ -427,9 +427,9 @@ def rep_hidden(name):
     return any(h.lower() in text for h in load_config().get("hidden_reps") or [] if h)
 
 
-def leaderboard(tally, values=None, limit=10, by_value=False):
-    """Ranked rep lines: most deals first, value breaks a tie.
-    by_value=True ranks by $ value instead, count breaks a tie."""
+def leaderboard(tally, values=None, limit=10, by_value=True):
+    """Ranked rep lines: highest $ value first, count breaks a tie.
+    by_value=False ranks by count instead."""
     values = values or {}
     tally = {k: v for k, v in tally.items() if not rep_hidden(k)}
     if by_value:
@@ -1056,7 +1056,7 @@ def cmd_closed(cfg, caches):
             won_n[rep] = won_n.get(rep, 0) + 1
             won_v[rep] = won_v.get(rep, 0.0) + val
     lines = [f"\U0001f4e5 <b>Submissions \u2014 {len(opps)}</b>"]
-    lines += leaderboard(sub_n, limit=20)
+    lines += leaderboard(sub_n, sub_v, limit=20)
     total = sum(won_v.values())
     n_won = sum(won_n.values())
     lines += ["", f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
