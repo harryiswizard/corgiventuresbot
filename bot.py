@@ -521,9 +521,21 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
     if close:
         lines += ["", f"\U0001f4c5 Close Date: {close}"]
 
-    lines += ["", f'\U0001f517 <a href="{deal_url(cfg, opp["id"])}">'
-                  f'View Opportunity in Twenty</a>']
+    lines += ["", atlas_link_line(cfg, opp)]
     return "\n".join(lines)
+
+
+def atlas_link_line(cfg, opp):
+    """Atlas quote number linked to the quote; the Twenty deal if there is none."""
+    link = opp.get("atlasQuoteLink") or {}
+    url = (link.get("primaryLinkUrl") or "").strip()
+    num = (link.get("primaryLinkLabel") or opp.get("atlasQuoteNumbers") or "").strip()
+    if url:
+        if not num:
+            num = url.rstrip("/").rsplit("/", 1)[-1]
+        return f'\U0001f517 Atlas quote: <b><a href="{esc(url)}">{esc(num)}</a></b>'
+    return (f'\U0001f517 <a href="{deal_url(cfg, opp["id"])}">'
+            f'View Opportunity in Twenty</a>')
 
 
 def stage_change_msg(cfg, opp, old, new, ctx):
