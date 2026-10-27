@@ -117,14 +117,18 @@ def _canon(stage):
     return STAGE_ALIASES.get(stage, stage)
 
 
-def opportunities(tok=None):
+def opportunities(tok=None, updated_since=None):
     """Every opportunity, with `stage` taken from this bot's stage field.
 
     The Reinsurance bot reads `reinsuranceStage`; copying it onto `stage` here
     means the rest of the code never needs to know which field it is."""
     import instance
-    params = {"filter": f"teamId[eq]:{TEAM_ID}"} if TEAM_ID else None
-    recs = find_many("opportunities", params, tok=tok)
+    flt = [f"teamId[eq]:{TEAM_ID}"] if TEAM_ID else []
+    if updated_since:
+        flt.append(f"updatedAt[gte]:{updated_since}")
+    params = ({"filter": flt[0] if len(flt) == 1 else "and(" + ",".join(flt) + ")"}
+              if flt else None)
+    recs = find_many("opportunities", params, tok=tok, page_size=200)
     if TEAM_ID:
         # In the new Twenty, Companies hold insureds and the broker is the
         # Partner (brokerFirm), which is what the cards' company line means.

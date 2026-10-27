@@ -639,15 +639,16 @@ def poll_appointments(cfg, tg, seed=False):
     if not os.path.exists(APPOINTED_FILE):
         seed = True   # first run (e.g. a new workspace): record, don't announce
     known = load_json(APPOINTED_FILE, {})
-    obj = "brokerFirms" if tw.TEAM_ID else "companies"
-    flt = f"and(appointed[eq]:true,teamId[eq]:{tw.TEAM_ID})" if tw.TEAM_ID else "appointed[eq]:true"
     try:
-        recs = tw.find_many(obj, {"filter": flt}, page_size=60, max_pages=40)
+        # Incremental: changed firms are merged in, so a firm that was
+        # un-appointed stays in the copy with appointed=false until the next
+        # full fetch drops it; filter on the flag either way.
+        recs = _APPTS.get()
     except tw.TwentyError as e:
         log(f"appointed lookup failed: {e}")
         return 0
 
-    live = {r["id"]: r for r in recs}
+    live = {r["id"]: r for r in recs if r.get("appointed")}
     sent = 0
     for cid, rec in live.items():
         if cid in known:
@@ -681,6 +682,48 @@ def poll_appointments(cfg, tg, seed=False):
 
 
 # --------------------------------------------------------------- poll engine
+class Incremental:
+    """A live copy of a Twenty table kept fresh cheaply.
+
+    A full fetch (every page) runs every `full_every` seconds; in between only
+    records with updatedAt since the last fetch (minus an overlap for clock
+    skew) are pulled and merged in. Twenty allows 100 requests a minute, and a
+    full deal fetch is ~5 pages, so this is what lets the bot poll every few
+    seconds. Deletions only show up on the next full fetch."""
+
+    def __init__(self, fetch, full_every=120, overlap=60):
+        self.fetch, self.full_every, self.overlap = fetch, full_every, overlap
+        self.by_id, self.last_full, self.last = {}, 0.0, 0.0
+
+    def get(self):
+        started = time.time()
+        if started - self.last_full > self.full_every:
+            self.by_id = {r["id"]: r for r in self.fetch(None)}
+            self.last_full = started
+        else:
+            since = datetime.fromtimestamp(self.last - self.overlap, timezone.utc)
+            for r in self.fetch(since.strftime("%Y-%m-%dT%H:%M:%SZ")):
+                self.by_id[r["id"]] = r
+        self.last = started
+        return list(self.by_id.values())
+
+
+_OPPS = Incremental(lambda since: tw.opportunities(updated_since=since))
+
+
+def _appointed_fetch(since):
+    """Full fetch: appointed firms only. Incremental: every firm edited since,
+    appointed or not, so an un-appointed one is seen flipping off."""
+    obj = "brokerFirms" if tw.TEAM_ID else "companies"
+    flt = [f"teamId[eq]:{tw.TEAM_ID}"] if tw.TEAM_ID else []
+    flt.append(f"updatedAt[gte]:{since}" if since else "appointed[eq]:true")
+    params = {"filter": flt[0] if len(flt) == 1 else "and(" + ",".join(flt) + ")"}
+    return tw.find_many(obj, params, page_size=200, max_pages=40)
+
+
+_APPTS = Incremental(_appointed_fetch)
+
+
 _SEGMENT_COS = {"at": 0.0, "ids": set()}
 
 
@@ -831,7 +874,7 @@ def in_quiet_hours(cfg):
 
 
 def poll_once(cfg, tg, state, caches, seed=False):
-    opps = tw.opportunities()
+    opps = _OPPS.get()
     live = {o["id"]: o for o in opps if watched(o, cfg)}
 
     # Work out what changed before resolving any names.
@@ -853,7 +896,13 @@ def poll_once(cfg, tg, state, caches, seed=False):
                           "first_seen": now_local(cfg).isoformat(timespec="seconds"),
                           "updatedAt": opp.get("updatedAt")}
             if not seed:
-                waiting += 1
+                # Atlas ticks Submitted when it creates the deal, so a ticked
+                # deal goes out on first sight instead of a poll later.
+                if (opp.get(cfg.get("submitted_field") or "submitted")
+                        and cfg.get("notify_new") and not hidden(opp)):
+                    changes.append(("new", opp, None))
+                else:
+                    waiting += 1
             continue
         field = cfg.get("submitted_field") or "submitted"
         if not prev.get("announced", True):
