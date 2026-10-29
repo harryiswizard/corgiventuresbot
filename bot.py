@@ -326,6 +326,27 @@ def send(tg, text, chat_id=None, thread_id=None):
         time.sleep(0.35)
 
 
+def key_alert(tg, err):
+    """DM the owner when Twenty rejects the API key (revoked/expired), at most
+    once every 6 hours, so a dead key never fails silently again."""
+    text = str(err)
+    if not any(k in text for k in ("revoked", "401", "403", "expired")):
+        return
+    mark = os.path.join(STATE_DIR, "key_alert.txt")
+    try:
+        if time.time() - os.path.getmtime(mark) < 6 * 3600:
+            return
+    except OSError:
+        pass
+    try:
+        send(tg, "\u26a0\ufe0f <b>Corgi Ventures bot can't read Twenty</b> \u2014 the API key "
+                 "looks revoked or expired, so deal pings are paused. Send Claude a new key.",
+             str(tg.get("chat_id")).split(",")[0].strip())
+        open(mark, "w").write(text[:300])
+    except Exception as e:
+        log(f"key alert failed: {e}")
+
+
 def send_gif(tg, url, chat_id=None, thread_id=None):
     """A GIF under a card. A failed GIF never blocks the card itself."""
     for cid, tid in ([(chat_id, thread_id)] if chat_id else targets(tg)):
@@ -1379,6 +1400,7 @@ def main():
                 polls += 1
             except tw.TwentyError as e:
                 log(f"poll failed: {e}")
+                key_alert(tg, e)
             except Exception:
                 log("poll crashed:\n" + traceback.format_exc())
             left = deadline - time.time()
@@ -1419,6 +1441,7 @@ def main():
                 cfg = load_config()
             except tw.TwentyError as e:
                 log(f"poll failed: {e}")
+                key_alert(tg, e)
                 wait = max(cfg["poll_seconds"], 120)
             except Exception:
                 log("poll crashed:\n" + traceback.format_exc())
