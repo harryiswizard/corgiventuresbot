@@ -41,6 +41,14 @@
   "_rep_telegram": "Deal Owner name (substring, case-insensitive) -> Telegram username; the card tags them",
   "rep_telegram": {
     "Harry": "HarryPa1mer",
-    "Dinesh": "DSharmz"
-  }
+    "Dinesh": "DSharmz",
+    "Malik": "BigM4lik",
+    "Jay": "JayKavaiya",
+    "Allie": "itsalliek",
+    "Ayush": "ayushchavan123",
+    "Kristian": "Kristian_Fraser",
+    "Terek": "Terek_Schwarz"
+  },
+  "_quote_checker": "Tagged on a new deal card that didn't land at Quote Sent",
+  "quote_checker": "yusefshkh456"
 }

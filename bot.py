@@ -561,7 +561,14 @@ def new_deal_msg(cfg, opp, ctx):
     # a win, so it gets the Closed Won card, not a "New Deal" one.
     if opp.get("stage") == "CLOSED_WON":
         return card(cfg, opp, ctx, f"{stage_label('CLOSED_WON')} (new deal)", "Stage")
-    return card(cfg, opp, ctx, "New Deal", "Created At")
+    msg = card(cfg, opp, ctx, "New Deal", "Created At")
+    # Atlas quotes normally land straight at Quote Sent. Anything that arrives
+    # at an earlier stage needs a look, so tag the checker from config.
+    checker = (cfg.get("quote_checker") or "").lstrip("@")
+    if checker and opp.get("stage") not in ("QUOTE_SENT", "CLOSED_WON"):
+        msg += (f"\n\n\u26a0\ufe0f Didn't go straight to {esc(stage_label('QUOTE_SENT'))}"
+                f" \u2014 @{esc(checker)} please check")
+    return msg
 
 
 def burst_msg(cfg, stage_moves):
