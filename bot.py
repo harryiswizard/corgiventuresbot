@@ -23,7 +23,8 @@ Credentials (env var first, so GitHub Actions secrets work, then local file):
     TELEGRAM_BOT_TOKEN    | ~/.telegram_twenty_bot  {"bot_token":..,"chat_id":..}
     TELEGRAM_CHAT_ID      |
 """
-import html, json, os, sys, time, traceback
+import html
+import random, json, os, sys, time, traceback
 import urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -323,6 +324,25 @@ def send(tg, text, chat_id=None, thread_id=None):
             params["message_thread_id"] = tid
         tg_api("sendMessage", tg, params)
         time.sleep(0.35)
+
+
+def send_gif(tg, url, chat_id=None, thread_id=None):
+    """A GIF under a card. A failed GIF never blocks the card itself."""
+    for cid, tid in ([(chat_id, thread_id)] if chat_id else targets(tg)):
+        params = {"chat_id": cid, "animation": url}
+        if tid:
+            params["message_thread_id"] = tid
+        try:
+            tg_api("sendAnimation", tg, params, attempts=3)
+        except Exception as e:
+            log(f"gif failed ({url}): {e}")
+        time.sleep(0.35)
+
+
+def won_gif(cfg, tg):
+    gifs = cfg.get("won_gifs") or []
+    if gifs:
+        send_gif(tg, random.choice(gifs))
 
 
 # ---------------------------------------------------------------- formatting
@@ -945,11 +965,13 @@ def poll_once(cfg, tg, state, caches, seed=False):
         stage = opp.get("stage")
         if kind == "new":
             record_event("new", opp, None, stage, ctx, cfg)
-            pending.append(("new", new_deal_msg(cfg, opp, ctx)))
+            pending.append(("won" if stage == "CLOSED_WON" else "new",
+                            new_deal_msg(cfg, opp, ctx)))
         else:
             record_event("stage", opp, old, stage, ctx, cfg, bulk=is_burst)
             if not is_burst:
-                pending.append(("stage", stage_change_msg(cfg, opp, old, stage, ctx)))
+                pending.append(("won" if stage == "CLOSED_WON" else "stage",
+                                stage_change_msg(cfg, opp, old, stage, ctx)))
 
     announced_now = {c[1]["id"] for c in changes if c[0] == "new"}
     for oid, opp in live.items():
@@ -1004,6 +1026,8 @@ def poll_once(cfg, tg, state, caches, seed=False):
 
     for kind, msg in pending:
         send(tg, msg)
+        if kind == "won":
+            won_gif(cfg, tg)
         log(f"sent {kind}: {msg.splitlines()[0][:70]}")
     return len(pending)
 
