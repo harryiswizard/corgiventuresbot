@@ -391,6 +391,16 @@ def member(ctx, member_id):
     return (ctx or {}).get("members", {}).get(member_id)
 
 
+def tg_tag(name):
+    """' @handle' for a rep listed in config "rep_telegram" (first name or full
+    name -> Telegram username), so the card pings them; '' if not listed."""
+    text = (name or "").lower()
+    for rep, handle in (load_config().get("rep_telegram") or {}).items():
+        if rep and handle and rep.lower() in text:
+            return " @" + esc(handle.lstrip("@"))
+    return ""
+
+
 def deal_owner(ctx, opp):
     """Who owns the account that submitted the deal: the Partner's owner in the
     new Twenty (the deal's own owner field is Atlas-managed), else the deal owner."""
@@ -506,7 +516,7 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
     if stage == "QUOTE_SENT":
         people.append(f"\U0001f4e4 Quote sent by: <b>{esc(rep_of(ctx, opp))}</b>")
     owner = deal_owner(ctx, opp)
-    people.append(f"\U0001f468‍\U0001f4bc Deal Owner: <b>{esc(owner)}</b>" if owner
+    people.append(f"\U0001f468‍\U0001f4bc Deal Owner: <b>{esc(owner)}</b>{tg_tag(owner)}" if owner
                   else "\U0001f468‍\U0001f4bc Deal Owner: <i>not set in Twenty</i>")
     bdr = member(ctx, opp.get("bdrId"))
     if bdr:
