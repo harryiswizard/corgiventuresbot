@@ -486,9 +486,6 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
             lines.append(f'\U0001f91d Partner: <b><a href="{purl}">{esc(company)}</a></b>')
         else:
             lines.append("\U0001f91d Partner: <i>not set in Twenty</i>")
-        broker = tw.broker_label(opp.get("brokerId"))
-        if broker:
-            lines.append(f"\U0001f464 Broker: {esc(broker)}")
     elif company:
         lines.append(f"\U0001f3e2 {esc(company)}")
     lines.append(f"\U0001f3af Deal: <b>{esc(deal_title(opp, ctx))}</b>")
@@ -498,7 +495,8 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
     state = company_field(opp, ctx, "state")
     if state:
         lines.append(f"\U0001f30e State: {esc(state)}")
-    lines.append(f"\U0001f504 {updated_label}: {transition or ''}<b>{stage_label(stage)}</b>")
+    if updated_label != "Stage Updated":  # stage changes: the title says it
+        lines.append(f"\U0001f504 {updated_label}: {transition or ''}<b>{stage_label(stage)}</b>")
 
     amt = money(opp.get("amount"))
     if stage in MONEY_STAGES:
@@ -508,23 +506,10 @@ def card(cfg, opp, ctx, headline, updated_label, stage=None, transition=None):
     elif amt:
         lines.append(f"\U0001f4b0 Amount: <b>{amt}</b>")
 
-    when = fmt_time(opp.get("updatedAt"), cfg)
-    if when:
-        lines.append(f"⏰ Updated: {when}")
-
     people = []
-    if stage == "QUOTE_SENT":
-        people.append(f"\U0001f4e4 Quote sent by: <b>{esc(rep_of(ctx, opp))}</b>")
     owner = deal_owner(ctx, opp)
     people.append(f"\U0001f468‍\U0001f4bc Deal Owner: <b>{esc(owner)}</b>{tg_tag(owner)}" if owner
                   else "\U0001f468‍\U0001f4bc Deal Owner: <i>not set in Twenty</i>")
-    bdr = member(ctx, opp.get("bdrId"))
-    if bdr:
-        people.append(f"\U0001f465 BDR: {esc(bdr)}")
-    source = pretty_enum(opp.get("dealSource"))
-    if source:
-        people.append(f"\U0001f4e3 Source: {esc(source)}")
-    people.append(f"\U0001f4cd Stage: {stage_label(stage)}")
     lines += [""] + people
 
     close = fmt_time(opp.get("closeDate"), cfg)
