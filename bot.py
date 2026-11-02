@@ -1059,6 +1059,9 @@ COMMANDS = [
     ("daily", "Today's stage changes and closed business"),
     ("weekly", "This week (since Monday)"),
     ("monthly", "This month (since the 1st)"),
+    ("yesterday", "Yesterday's full day"),
+    ("lastweek", "Last full week (Mon-Sun)"),
+    ("lastmonth", "Last full month"),
     ("pipeline", "Deal counts and value by stage now"),
     ("quotes", "Who has sent quotes: rep leaderboard"),
     ("closed", "Submissions and closed won leaderboards"),
@@ -1215,7 +1218,8 @@ def cmd_deals(cfg, caches, arg=""):
     return "\n".join(lines)
 
 
-SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month", "/deals",
+SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month",
+                 "/yesterday", "/lastweek", "/lastmonth", "/deals",
                  "/pipeline", "/quotes", "/leaderboard", "/closed", "/won"}
 
 
@@ -1237,6 +1241,12 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send(tg, reports.report(cfg, "weekly", caches), chat_id, thread_id)
         elif cmd in ("/monthly", "/month"):
             send(tg, reports.report(cfg, "monthly", caches), chat_id, thread_id)
+        elif cmd == "/yesterday":
+            send(tg, reports.report(cfg, "daily", caches, previous=True), chat_id, thread_id)
+        elif cmd == "/lastweek":
+            send(tg, reports.report(cfg, "weekly", caches, previous=True), chat_id, thread_id)
+        elif cmd == "/lastmonth":
+            send(tg, reports.report(cfg, "monthly", caches, previous=True), chat_id, thread_id)
         elif cmd == "/deals":
             send_long(tg, cmd_deals(cfg, caches, " ".join(text.strip().split()[1:])),
                       chat_id, thread_id)

@@ -278,8 +278,9 @@ def report(cfg, period, caches=None, previous=False):
     appointed = [e for e in evs if e.get("kind") == "appointed"]
     unappointed = [e for e in evs if e.get("kind") == "unappointed"]
 
-    label = {"daily": "Daily", "weekly": "Weekly",
-             "monthly": "Monthly"}.get(period, "Report")
+    label = ({"daily": "Yesterday", "weekly": "Last week", "monthly": "Last month"}
+             if previous else
+             {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}).get(period, "Report")
     lines = [f"<b>{label} \u2014 {title}</b>"]
     try:
         counts, total, values, by_id = snapshot(cfg)
@@ -305,7 +306,9 @@ def report(cfg, period, caches=None, previous=False):
             when = datetime.fromisoformat((o.get("closeDate") or "").replace("Z", "+00:00"))
         except ValueError:
             when = landed.get(o["id"])
-        if when and when >= start:
+        # A past window is closed at its end; the current one also takes
+        # future Close dates (they count from today).
+        if when and when >= start and (not previous or when < end):
             won.append({"id": o["id"], "to": "CLOSED_WON"})
     if won:
         val, cur, _ = period_value(won, by_id)
