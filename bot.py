@@ -463,7 +463,9 @@ def rep_of(ctx, opp):
                 old_owner = legacy.owners().get(opp.get("id"))
             except Exception:
                 old_owner = None
+    # No deal owner (Atlas-created deals): credit the submitting Partner's owner.
     return (member(ctx, opp.get("ownerId")) or old_owner or opp.get("hubspotOwner")
+            or member(ctx, company_field(opp, ctx, "partnerOwnerId"))
             or (made.get("name") if made.get("source") == "MANUAL" else None)
             or "Unassigned")
 

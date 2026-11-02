@@ -253,7 +253,7 @@ def quotes_sent(cfg, start, end, by_id):
 def quotes_section(cfg, start, end, by_id, caches, sent_evs):
     """Quotes sent in the window, with a rep leaderboard."""
     import bot
-    ctx = bot.build_ctx([], caches or ({}, {}))
+    ctx = bot.build_ctx(list(by_id.values()), caches or ({}, {}))
     try:
         rows = [(o, bot.rep_of(ctx, o)) for o, _ in quotes_sent(cfg, start, end, by_id)]
     except tw.TwentyError as e:
@@ -290,7 +290,7 @@ def report(cfg, period, caches=None, previous=False):
         return "\n".join(lines)
 
     import bot
-    ctx = bot.build_ctx([], caches or ({}, {}))
+    ctx = bot.build_ctx(list(by_id.values()), caches or ({}, {}))
 
     # Closed won: deals that reached Closed Won in the window and are still
     # there now (moved back or deleted = not closed business).
