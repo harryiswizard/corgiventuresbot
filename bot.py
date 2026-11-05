@@ -1068,6 +1068,7 @@ COMMANDS = [
     ("quotes", "Who has sent quotes: rep leaderboard"),
     ("closed", "Submissions and closed won leaderboards"),
     ("bymonth", "Book growth month by month"),
+    ("broker", "Top producing Partners by closed won"),
 ]
 _BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
 HELP = ("<b>Twenty deal bot</b>\n"
@@ -1240,6 +1241,50 @@ def cmd_bymonth(cfg, caches):
     return "\n".join(lines)
 
 
+def cmd_broker(cfg, caches):
+    """Producing Partners (at least one Closed Won deal) ranked by $ won, deal
+    count breaking ties; each line also shows their submissions and owning rep."""
+    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
+    won = [o for o in opps if o.get("stage") == "CLOSED_WON"]
+    ctx = build_ctx(won, caches)
+    subs, won_n, won_v, names, reps = {}, {}, {}, {}, {}
+    for o in opps:
+        cid = o.get("companyId")
+        if cid:
+            subs[cid] = subs.get(cid, 0) + 1
+    no_partner = 0
+    for o in won:
+        cid = o.get("companyId")
+        if not cid:
+            no_partner += 1
+            continue
+        won_n[cid] = won_n.get(cid, 0) + 1
+        won_v[cid] = won_v.get(cid, 0.0) + (amount_value(o.get("amount")) or 0.0)
+        names[cid] = (company_field(o, ctx, "name") or "").strip() or "(unnamed Partner)"
+        reps[cid] = member(ctx, company_field(o, ctx, "partnerOwnerId"))
+    if not won_n:
+        return "\U0001f91d <b>Top producing Partners</b>\n\nNothing closed won yet."
+
+    total = sum(won_v.values())
+    lines = [f"\U0001f91d <b>Top producing Partners \u2014 {len(won_n)}</b>",
+             f"{sum(won_n.values())} deals won \u00b7 {fmt_money(total)}", ""]
+    ranked = sorted(won_n, key=lambda c: (-won_v[c], -won_n[c], names[c].lower()))
+    limit = 25
+    for i, cid in enumerate(ranked[:limit]):
+        badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+        url = f"{cfg['app_base_url'].rstrip('/')}/object/brokerFirm/{cid}"
+        rep = f" \u00b7 {esc(reps[cid])}" if reps.get(cid) and not rep_hidden(reps[cid]) else ""
+        lines.append(f'{badge} <b><a href="{url}">{esc(names[cid][:48].strip())}</a></b>')
+        lines.append(f"   Won <b>{won_n[cid]}</b> \u00b7 {fmt_money(won_v[cid])}"
+                     f" \u00b7 {subs.get(cid, 0)} submitted{rep}")
+    if len(ranked) > limit:
+        lines.append(f"\u2026 and {len(ranked) - limit} more producing Partners")
+    if no_partner:
+        lines += ["", f"\u26a0\ufe0f {no_partner} won deal{'s' if no_partner != 1 else ''}"
+                      " with no Partner set (not ranked)"]
+    return "\n".join(lines)
+
+
 def cmd_deals(cfg, caches, arg=""):
     """Every deal grouped by stage, by company. Long lists are trimmed."""
     import deal_log
@@ -1278,7 +1323,7 @@ def cmd_deals(cfg, caches, arg=""):
 SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month",
                  "/yesterday", "/lastweek", "/lastmonth", "/deals",
                  "/pipeline", "/quotes", "/leaderboard", "/closed", "/won",
-                 "/bymonth"}
+                 "/bymonth", "/broker", "/brokers"}
 
 
 def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
@@ -1316,6 +1361,8 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send_long(tg, cmd_closed(cfg, caches), chat_id, thread_id)
         elif cmd in ("/bymonth", "/growth"):
             send_long(tg, cmd_bymonth(cfg, caches), chat_id, thread_id)
+        elif cmd in ("/broker", "/brokers"):
+            send_long(tg, cmd_broker(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
             send(tg, f"Chat id: <code>{chat_id}</code>"
                  + (f" · topic <code>{thread_id}</code>" if thread_id else ""),
