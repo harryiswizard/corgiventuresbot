@@ -1266,22 +1266,11 @@ def cmd_broker(cfg, caches):
         return "\U0001f91d <b>Top producing Partners</b>\n\nNothing closed won yet."
 
     total = sum(won_v.values())
-    lines = [f"\U0001f91d <b>Top producing Partners \u2014 {len(won_n)}</b>",
-             f"{sum(won_n.values())} deals won \u00b7 {fmt_money(total)}", ""]
+    lines = [f"\U0001f91d <b>Top 10 Partners by closed won</b>", ""]
     ranked = sorted(won_n, key=lambda c: (-won_v[c], -won_n[c], names[c].lower()))
-    limit = 25
-    for i, cid in enumerate(ranked[:limit]):
+    for i, cid in enumerate(ranked[:10]):
         badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
-        url = f"{cfg['app_base_url'].rstrip('/')}/object/brokerFirm/{cid}"
-        rep = f" \u00b7 {esc(reps[cid])}" if reps.get(cid) and not rep_hidden(reps[cid]) else ""
-        lines.append(f'{badge} <b><a href="{url}">{esc(names[cid][:48].strip())}</a></b>')
-        lines.append(f"   Won <b>{won_n[cid]}</b> \u00b7 {fmt_money(won_v[cid])}"
-                     f" \u00b7 {subs.get(cid, 0)} submitted{rep}")
-    if len(ranked) > limit:
-        lines.append(f"\u2026 and {len(ranked) - limit} more producing Partners")
-    if no_partner:
-        lines += ["", f"\u26a0\ufe0f {no_partner} won deal{'s' if no_partner != 1 else ''}"
-                      " with no Partner set (not ranked)"]
+        lines.append(f"{badge} {esc(names[cid][:48].strip())} \u2014 {fmt_money(won_v[cid])}")
     return "\n".join(lines)
 
 
