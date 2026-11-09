@@ -36,16 +36,16 @@
   "require_submitted_flag": false,
   "hidden_reps": [
     "Zarret",
-    "Darshan"
+    "Darshan",
+    "Kavaiya",
+    "Ayush"
   ],
   "_rep_telegram": "Deal Owner name (substring, case-insensitive) -> Telegram username; the card tags them",
   "rep_telegram": {
     "Harry": "HarryPa1mer",
     "Dinesh": "DSharmz",
     "Malik": "BigM4lik",
-    "Jay": "JayKavaiya",
     "Allie": "itsalliek",
-    "Ayush": "ayushchavan123",
     "Kristian": "Kristian_Fraser",
     "Terek": "Terek_Schwarz"
   },
