@@ -1068,6 +1068,7 @@ COMMANDS = [
     ("quotes", "Who has sent quotes: rep leaderboard"),
     ("closed", "Submissions and closed won leaderboards"),
     ("bymonth", "Book growth month by month"),
+    ("byweek", "Book growth week by week"),
     ("broker", "Top producing Partners by closed won"),
 ]
 _BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
@@ -1274,6 +1275,60 @@ def cmd_broker(cfg, caches):
     return "\n".join(lines)
 
 
+def cmd_byweek(cfg, caches):
+    """Book growth by week (Mon-Sun): Closed Won premium per week (by Close
+    date, else created date), the running book total and week-on-week growth."""
+    opps = [o for o in tw.opportunities()
+            if watched(o, cfg) and not hidden(o) and o.get("stage") == "CLOSED_WON"]
+    now = now_local(cfg)
+    tz = now.tzinfo
+    weeks = {}
+    for o in opps:
+        when = parse_iso(o.get("closeDate")) or parse_iso(o.get("createdAt"))
+        if not when:
+            continue
+        if tz is not None:
+            when = when.astimezone(tz)
+        key = (when - timedelta(days=when.weekday())).date()
+        n, v = weeks.get(key, (0, 0.0))
+        weeks[key] = (n + 1, v + (amount_value(o.get("amount")) or 0.0))
+    if not weeks:
+        return "\U0001f4c8 <b>Book by week</b>\n\nNothing closed won yet."
+
+    # Every week from the first win to now, empty ones included.
+    this_week = (now - timedelta(days=now.weekday())).date()
+    keys, k = [], min(weeks)
+    while k <= this_week:
+        keys.append(k)
+        k += timedelta(days=7)
+
+    total_n = sum(n for n, _ in weeks.values())
+    total_v = sum(v for _, v in weeks.values())
+    lines = [f"\U0001f4c8 <b>Book by week</b> \u2014 {fmt_money(total_v)} \u00b7 "
+             f"{total_n} deal{'s' if total_n != 1 else ''}", ""]
+    book, prev_won = 0.0, None
+    for k in keys:
+        n, v = weeks.get(k, (0, 0.0))
+        before = book
+        book += v
+        label = f"Week of {k.strftime('%-d %b %Y')}"
+        if k == this_week:
+            label += " (so far)"
+        growth = f" (+{v / before * 100:.0f}%)" if before and v else ""
+        wow = ""
+        # No week-on-week for the week in progress: a partial week always
+        # looks like a collapse.
+        if prev_won and k != this_week:
+            delta = (v - prev_won) / prev_won * 100
+            arrow = "\u25b2" if delta >= 0 else "\u25bc"
+            wow = f" \u00b7 {arrow}{abs(delta):.0f}% vs prior week"
+        lines.append(f"<b>{label}</b>")
+        lines.append(f"   Won {n} \u00b7 {fmt_money(v)}{wow}")
+        lines.append(f"   Book {fmt_money(book)}{growth}")
+        prev_won = v
+    return "\n".join(lines)
+
+
 def cmd_deals(cfg, caches, arg=""):
     """Every deal grouped by stage, by company. Long lists are trimmed."""
     import deal_log
@@ -1312,7 +1367,7 @@ def cmd_deals(cfg, caches, arg=""):
 SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month",
                  "/yesterday", "/lastweek", "/lastmonth", "/deals",
                  "/pipeline", "/quotes", "/leaderboard", "/closed", "/won",
-                 "/bymonth", "/broker", "/brokers"}
+                 "/bymonth", "/byweek", "/broker", "/brokers"}
 
 
 def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
@@ -1350,6 +1405,8 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send_long(tg, cmd_closed(cfg, caches), chat_id, thread_id)
         elif cmd in ("/bymonth", "/growth"):
             send_long(tg, cmd_bymonth(cfg, caches), chat_id, thread_id)
+        elif cmd in ("/byweek", "/weekly_growth"):
+            send_long(tg, cmd_byweek(cfg, caches), chat_id, thread_id)
         elif cmd in ("/broker", "/brokers"):
             send_long(tg, cmd_broker(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
