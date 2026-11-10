@@ -24,7 +24,11 @@ Credentials (env var first, so GitHub Actions secrets work, then local file):
     TELEGRAM_CHAT_ID      |
 """
 import html
-import random, json, os, sys, time, traceback
+import random, json, os, sys, threading, time, traceback
+# reports.py does `import bot`; point that at this running module so it shares
+# the live deal cache instead of loading a second, empty copy.
+if __name__ == "__main__":
+    sys.modules.setdefault("bot", sys.modules["__main__"])
 import urllib.error, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -739,8 +743,22 @@ class Incremental:
     def __init__(self, fetch, full_every=120, overlap=60):
         self.fetch, self.full_every, self.overlap = fetch, full_every, overlap
         self.by_id, self.last_full, self.last = {}, 0.0, 0.0
+        self.lock = threading.RLock()
 
     def get(self):
+        with self.lock:
+            return self._get()
+
+    def fresh(self, max_age=30):
+        """The live copy if it was refreshed in the last `max_age` seconds,
+        else refresh it now. Commands use this so they don't re-download every
+        deal (~5s) when the poller fetched them a moment ago."""
+        with self.lock:
+            if self.by_id and time.time() - self.last <= max_age:
+                return list(self.by_id.values())
+            return self._get()
+
+    def _get(self):
         started = time.time()
         if started - self.last_full > self.full_every:
             self.by_id = {r["id"]: r for r in self.fetch(None)}
@@ -754,6 +772,11 @@ class Incremental:
 
 
 _OPPS = Incremental(lambda since: tw.opportunities(updated_since=since))
+
+
+def live_opportunities():
+    """Every deal, from the poller's live copy (seconds old) when it has one."""
+    return _OPPS.fresh()
 
 
 def _appointed_fetch(since):
@@ -824,6 +847,20 @@ def build_ctx(opps, caches):
         except tw.TwentyError as e:
             log(f"company lookup failed: {e}")
     return {"members": members, "companies": companies}
+
+
+def warm_ctx(caches):
+    """Look up every deal's Partner and the team's members once at start-up,
+    so the first leaderboard command doesn't wait on them. Runs in the
+    background (~25s) so pings and commands aren't held up."""
+    opps = list(_OPPS.by_id.values())
+
+    def run():
+        try:
+            build_ctx(opps, caches)
+        except Exception as e:
+            log(f"warm-up lookup failed: {e}")
+    threading.Thread(target=run, name="warm-ctx", daemon=True).start()
 
 
 def record_event(kind, opp, old, new, ctx, cfg, bulk=False):
@@ -1078,7 +1115,7 @@ HELP = ("<b>Twenty deal bot</b>\n"
 
 
 def cmd_pipeline(cfg, caches):
-    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
+    opps = [o for o in live_opportunities() if watched(o, cfg) and not hidden(o)]
     counts, totals = {}, {}
     for o in opps:
         s = o.get("stage")
@@ -1138,7 +1175,7 @@ def cmd_quotes(cfg, caches):
     """Quotes sent (Quote Sent or further on): total + rep leaderboard.
     Counts and money only - no deal lists (Harry 2026-10-19)."""
     sent = stage_rank("QUOTE_SENT")
-    opps = [o for o in tw.opportunities()
+    opps = [o for o in live_opportunities()
             if watched(o, cfg) and o.get("stage") in STAGE_ORDER
             and stage_rank(o.get("stage")) >= sent]
     ctx = build_ctx(opps, caches)
@@ -1161,7 +1198,7 @@ def cmd_quotes(cfg, caches):
 def cmd_closed(cfg, caches):
     """Two short leaderboards: submissions per rep, and closed won per rep.
     Counts and money only - no deal lists (Harry 2026-10-12)."""
-    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
+    opps = [o for o in live_opportunities() if watched(o, cfg) and not hidden(o)]
     ctx = build_ctx(opps, caches)
     sub_n, sub_v, won_n, won_v = {}, {}, {}, {}
     for o in opps:
@@ -1191,7 +1228,7 @@ def cmd_closed(cfg, caches):
 def cmd_bymonth(cfg, caches):
     """Book growth by month: Closed Won premium per month (by Close date, else
     created date), the running book total and month-on-month growth."""
-    opps = [o for o in tw.opportunities()
+    opps = [o for o in live_opportunities()
             if watched(o, cfg) and not hidden(o) and o.get("stage") == "CLOSED_WON"]
     tz = now_local(cfg).tzinfo
     months = {}
@@ -1245,7 +1282,7 @@ def cmd_bymonth(cfg, caches):
 def cmd_broker(cfg, caches):
     """Producing Partners (at least one Closed Won deal) ranked by $ won, deal
     count breaking ties; each line also shows their submissions and owning rep."""
-    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
+    opps = [o for o in live_opportunities() if watched(o, cfg) and not hidden(o)]
     won = [o for o in opps if o.get("stage") == "CLOSED_WON"]
     ctx = build_ctx(won, caches)
     subs, won_n, won_v, names, reps = {}, {}, {}, {}, {}
@@ -1278,7 +1315,7 @@ def cmd_broker(cfg, caches):
 def cmd_byweek(cfg, caches):
     """Book growth by week (Mon-Sun): Closed Won premium per week (by Close
     date, else created date), the running book total and week-on-week growth."""
-    opps = [o for o in tw.opportunities()
+    opps = [o for o in live_opportunities()
             if watched(o, cfg) and not hidden(o) and o.get("stage") == "CLOSED_WON"]
     now = now_local(cfg)
     tz = now.tzinfo
@@ -1332,7 +1369,7 @@ def cmd_byweek(cfg, caches):
 def cmd_deals(cfg, caches, arg=""):
     """Every deal grouped by stage, by company. Long lists are trimmed."""
     import deal_log
-    opps = [o for o in tw.opportunities() if watched(o, cfg) and not hidden(o)]
+    opps = [o for o in live_opportunities() if watched(o, cfg) and not hidden(o)]
     rows = deal_log.collect(opps)
     deal_log.write(rows)
 
@@ -1561,6 +1598,8 @@ def main():
                 poll_once(cfg, tg, state, caches, seed=seed)
                 seed = False
                 polls += 1
+                if polls == 1:
+                    warm_ctx(caches)
             except tw.TwentyError as e:
                 log(f"poll failed: {e}")
                 key_alert(tg, e)
@@ -1596,10 +1635,14 @@ def main():
         # command reply (replies used to queue behind each 6-9s poll).
         nonlocal cfg
         seed = not state
+        warmed = False
         while True:
             wait = cfg["poll_seconds"]
             try:
                 poll_once(cfg, tg, state, caches, seed=seed)
+                if not warmed:
+                    warm_ctx(caches)
+                    warmed = True
                 seed = False
                 cfg = load_config()
             except tw.TwentyError as e:

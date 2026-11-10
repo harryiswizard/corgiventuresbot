@@ -105,7 +105,8 @@ def _watched(opp, cfg):
 def snapshot(cfg):
     """Deals per stage and their value right now, straight from Twenty."""
     from stages import HIDDEN_STAGES
-    opps = [o for o in tw.opportunities()
+    from bot import live_opportunities
+    opps = [o for o in live_opportunities()
             if _watched(o, cfg) and o.get("stage") not in HIDDEN_STAGES]
     counts, values = {}, {}
     for o in opps:
@@ -191,7 +192,12 @@ def arrivals(cfg, start, end, by_id):
     if start > end or not by_id:
         return out
     since = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    tl = tw.opportunity_timeline(since, ids=list(by_id) if tw.TEAM_ID else None)
+    # Only deals edited since the window opened can have timeline entries in
+    # it, so skip the rest (1,200+ deals was 31 timeline requests a report).
+    # An hour of slack covers clock skew; a deal with no updatedAt is kept.
+    cut = (start - timedelta(hours=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    ids = [i for i, o in by_id.items() if (o.get("updatedAt") or "9")[:19] >= cut]
+    tl = tw.opportunity_timeline(since, ids=ids if tw.TEAM_ID else None) if ids or not tw.TEAM_ID else []
     created, first_before = {}, {}
     for t in sorted(tl, key=lambda t: t.get("happensAt") or ""):
         oid = t.get("targetOpportunityId")

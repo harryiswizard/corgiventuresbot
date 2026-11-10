@@ -168,19 +168,19 @@ def opportunity_timeline(since_iso, tok=None, ids=None):
         # The new Twenty holds every team's deal history; asking only for our
         # deals keeps the query small and under the page cap.
         ids = [i for i in dict.fromkeys(ids) if i]
-        batches = [ids[i:i + 40] for i in range(0, len(ids), 40)]
+        batches = [ids[i:i + 100] for i in range(0, len(ids), 100)]
         with ThreadPoolExecutor(max_workers=4) as ex:
             parts = ex.map(lambda b: find_many(
                 "timelineActivities",
                 {"filter": f'and(targetOpportunityId[in]:[{",".join(b)}],'
                            f'happensAt[gte]:"{since_iso}")'},
-                tok=tok, max_pages=100), batches)
+                tok=tok, page_size=200, max_pages=100), batches)
             out = [t for part in parts for t in part]
     else:
         out = find_many("timelineActivities",
                         {"filter": f'and(targetOpportunityId[is]:NOT_NULL,'
                                    f'happensAt[gte]:"{since_iso}")'},
-                        tok=tok, max_pages=100)
+                        tok=tok, page_size=200, max_pages=100)
     for t in out:
         props = t.get("properties") or {}
         st = (props.get("diff") or {}).get("stage")
