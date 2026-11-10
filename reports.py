@@ -232,6 +232,35 @@ def arrivals(cfg, start, end, by_id):
     return out
 
 
+def won_move_days(cfg, by_id):
+    """{deal id: Close date it should have} for Closed Won deals: the US Eastern
+    day of the latest timeline edit that set stage to CLOSED_WON, at 12:00 UTC,
+    exactly what ~/twenty-scorecard/closedate_fix.py writes. Deals with no such
+    edit (created at Closed Won, migrated) are left out and use their Close date."""
+    from zoneinfo import ZoneInfo
+    ids = [i for i, o in by_id.items() if o.get("stage") == "CLOSED_WON"]
+    if not ids or not tw.TEAM_ID:
+        return {}
+    since = _since(cfg, datetime(2000, 1, 1, tzinfo=timezone.utc))
+    latest = {}
+    for t in tw.opportunity_timeline(
+            since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"), ids=ids):
+        st = ((t.get("properties") or {}).get("diff") or {}).get("stage") or {}
+        if not isinstance(st, dict) or st.get("after") != "CLOSED_WON":
+            continue
+        try:
+            at = datetime.fromisoformat(t["happensAt"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        oid = t.get("targetOpportunityId")
+        if oid not in latest or at > latest[oid]:
+            latest[oid] = at
+    et = ZoneInfo("America/New_York")
+    return {oid: datetime.combine(at.astimezone(et).date(), datetime.min.time(),
+                                  tzinfo=timezone.utc).replace(hour=12)
+            for oid, at in latest.items()}
+
+
 def reached_stage(cfg, start, end, by_id, stage):
     """[(opp, when)] for every deal that landed on `stage` in the window."""
     hits = arrivals(cfg, start, end, by_id).get(stage) or {}
@@ -304,14 +333,21 @@ def report(cfg, period, caches=None, previous=False):
     # falls in it (a future Close date counts from today). No Close date: the
     # day it landed on Closed Won, from the timeline.
     landed = arr.get("CLOSED_WON") or {}
+    moved = won_move_days(cfg, by_id)
     won = []
     for o in by_id.values():
         if o.get("stage") != "CLOSED_WON":
             continue
-        try:
-            when = datetime.fromisoformat((o.get("closeDate") or "").replace("Z", "+00:00"))
-        except ValueError:
-            when = landed.get(o["id"])
+        # The day it moved to Closed Won wins over the Close date: Atlas often
+        # stamps a stale or future Close date on the move, and the Mac job
+        # that corrects it only runs while the laptop is awake, so new wins
+        # were missing from today's totals for hours.
+        when = moved.get(o["id"])
+        if when is None:
+            try:
+                when = datetime.fromisoformat((o.get("closeDate") or "").replace("Z", "+00:00"))
+            except ValueError:
+                when = landed.get(o["id"])
         # A past window is closed at its end; the current one also takes
         # future Close dates (they count from today).
         if when and when >= start and (not previous or when < end):
