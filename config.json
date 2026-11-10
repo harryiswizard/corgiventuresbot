@@ -51,5 +51,16 @@
   },
   "_quote_checker": "Tagged on a new deal card that didn't land at Quote Sent",
   "quote_checker": "yusefshkh456",
-  "won_gifs": []
+  "won_gifs": [],
+  "_slow_nag": "Scold quote_checker when no deal has left Submission Received for quiet_minutes, repeating every repeat_minutes, only in hours (ET) on weekdays. Cards moving a deal off Submission Received tag them with the count left.",
+  "slow_nag": {
+    "enabled": true,
+    "quiet_minutes": 120,
+    "repeat_minutes": 120,
+    "hours": [
+      9,
+      18
+    ],
+    "weekdays_only": true
+  }
 }

@@ -955,6 +955,71 @@ def in_quiet_hours(cfg):
     return (start <= h or h < end) if start > end else (start <= h < end)
 
 
+# ------------------------------------------------------- submission chaser
+SLOW_FILE = os.path.join(STATE_DIR, "slow_nag.json")
+_SCOLDS = [
+    "\U0001f422 @{who} you're being slow. Nothing has come off {sr} in {quiet}.",
+    "\u23f0 @{who} still waiting on you. {quiet} and not one deal moved off {sr}.",
+    "\U0001f440 @{who} the queue isn't going to quote itself. {quiet} with no movement on {sr}.",
+    "\U0001f6a8 @{who} hello?? {quiet} and {sr} hasn't budged.",
+]
+
+
+def _slow_cfg(cfg):
+    c = dict({"enabled": True, "quiet_minutes": 120, "repeat_minutes": 120,
+              "hours": [9, 18], "weekdays_only": True}, **(cfg.get("slow_nag") or {}))
+    c["who"] = (c.get("tag") or cfg.get("quote_checker") or "").lstrip("@")
+    return c
+
+
+def _span(minutes):
+    h, m = divmod(int(minutes), 60)
+    return (f"{h}h" + (f" {m}m" if m else "")) if h else f"{m}m"
+
+
+def submission_queue(live):
+    return [o for o in live.values()
+            if o.get("stage") == "QUOTE_RECEIVED" and not hidden(o)]
+
+
+def chase_submissions(cfg, tg, live, cleared):
+    """Scold the quote checker when nothing has left Submission Received for a while."""
+    c = _slow_cfg(cfg)
+    if not c["enabled"] or not c["who"]:
+        return
+    now = now_local(cfg)
+    rec = load_json(SLOW_FILE, {})
+    if cleared or not rec.get("last_clear"):
+        rec["last_clear"] = now.isoformat(timespec="seconds")
+        save_json(SLOW_FILE, rec)
+        return
+    queue = submission_queue(live)
+    start, end = c["hours"]
+    if (not queue or (c["weekdays_only"] and now.weekday() >= 5)
+            or not (start <= now.hour < end)):
+        return
+    since_clear = (now - parse_iso(rec["last_clear"])).total_seconds() / 60
+    last_nag = parse_iso(rec.get("last_nag"))
+    since_nag = (now - last_nag).total_seconds() / 60 if last_nag else 1e9
+    if since_clear < c["quiet_minutes"] or since_nag < c["repeat_minutes"]:
+        return
+    n = int(rec.get("nags", 0))
+    sr = stage_label("QUOTE_RECEIVED")
+    msg = html.escape(_SCOLDS[n % len(_SCOLDS)].format(who=c["who"], sr=sr, quiet=_span(since_clear)), quote=False)
+    oldest = min(queue, key=lambda o: o.get("createdAt") or "9")
+    age = parse_iso(oldest.get("createdAt"))
+    msg += f"\n\n<b>{len(queue)}</b> deals sitting on {esc(sr)}, not yet {esc(stage_label('QUOTE_SENT'))}."
+    if age:
+        days = (now - age).total_seconds() / 86400
+        msg += (f"\nOldest: {esc(deal_title(oldest))}, waiting "
+                f"{_span(days * 1440) if days < 1 else f'{days:.0f} days'}.")
+    msg += "\nGet quoting."
+    send(tg, msg)
+    rec.update(last_nag=now.isoformat(timespec="seconds"), nags=n + 1)
+    save_json(SLOW_FILE, rec)
+    log(f"scolded {c['who']}: {len(queue)} on {sr}")
+
+
 def poll_once(cfg, tg, state, caches, seed=False):
     opps = _OPPS.get()
     live = {o["id"]: o for o in opps if watched(o, cfg)}
@@ -1084,11 +1149,30 @@ def poll_once(cfg, tg, state, caches, seed=False):
         log(f"burst: {len(stage_moves)} stage changes swallowed "
             f"(pipeline edit, not rep activity)")
 
+    # Deals leaving Submission Received: credit the checker on the card.
+    cleared = [c for c in stage_moves
+               if c[2] == "QUOTE_RECEIVED" and c[1].get("stage") != "QUOTE_RECEIVED"]
+    who = _slow_cfg(cfg)["who"]
+    if cleared and who and not is_burst:
+        left = len(submission_queue(live))
+        ids = {c[1]["id"] for c in cleared}
+        tagged = []
+        for (kind, msg), (ckind, opp, old) in zip(pending, changes):
+            if ckind == "stage" and opp["id"] in ids:
+                msg += (f"\n\n\u2705 @{esc(who)} got one off {esc(stage_label('QUOTE_RECEIVED'))}"
+                        f" \u2014 <b>{left}</b> left")
+            tagged.append((kind, msg))
+        pending = tagged
+
     for kind, msg in pending:
         send(tg, msg)
         if kind == "won":
             won_gif(cfg, tg)
         log(f"sent {kind}: {msg.splitlines()[0][:70]}")
+    try:
+        chase_submissions(cfg, tg, live, bool(cleared))
+    except Exception:
+        log("submission chaser failed:\n" + traceback.format_exc())
     return len(pending)
 
 
