@@ -50,11 +50,11 @@
     "Terek": "Terek_Schwarz"
   },
   "_quote_checker": "Tagged on a new deal card that didn't land at Quote Sent",
-  "quote_checker": "yusefshkh456",
+  "quote_checker": "",
   "won_gifs": [],
   "_slow_nag": "Scold quote_checker when no deal has left Submission Received for quiet_minutes, repeating every repeat_minutes, only in hours (ET) on weekdays. Cards moving a deal off Submission Received tag them with the count left.",
   "slow_nag": {
-    "enabled": true,
+    "enabled": false,
     "quiet_minutes": 120,
     "repeat_minutes": 120,
     "hours": [
