@@ -15,6 +15,7 @@ from datetime import datetime
 import bot
 
 _last = {"digest": None, "sent": 0.0, "day": None}
+PAGE_VERSION = 3      # bump with site/index.html: open pages reload themselves
 MIN_GAP = 15          # seconds between deploys at most
 HEARTBEAT = 30 * 60   # republish this often anyway so the page can show "live"
 
@@ -58,9 +59,45 @@ def snapshot(cfg, state, live, caches):
                      "company": bot.company_field(opp, ctx, "name") or bot.deal_title(opp, ctx),
                      "stage": bot.stage_label(opp.get("stage"))})
     ranked = sorted(reps.values(), key=lambda r: (-r["count"], -r["value"], r["name"]))
+    won = closed_won_today(cfg, live, caches, today)
     return {"day": today.isoformat(), "reps": ranked, "feed": feed[-12:][::-1],
             "total": sum(r["count"] for r in ranked),
-            "totalValue": round(sum(r["value"] for r in ranked), 2)}
+            "totalValue": round(sum(r["value"] for r in ranked), 2),
+            "won": won, "wonValue": round(sum(w["value"] for w in won), 2),
+            "v": PAGE_VERSION}
+
+
+def closed_won_today(cfg, live, caches, today):
+    """Deals that moved to (or were created at) Closed Won today, from the
+    bot's own event log; only ones still at Closed Won count."""
+    hits = {}
+    try:
+        with open(bot.EVENTS_FILE) as f:
+            for line in f:
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if ev.get("to") != "CLOSED_WON" or ev.get("bulk"):
+                    continue
+                when = bot.parse_iso(ev.get("ts"))
+                if when and when.date() == today:
+                    hits.setdefault(ev.get("id"), (when, ev))
+    except FileNotFoundError:
+        return []
+    opps = [live[i] for i in hits if i in live and live[i].get("stage") == "CLOSED_WON"]
+    ctx = bot.build_ctx(opps, caches)
+    out = []
+    for opp in opps:
+        when, ev = hits[opp["id"]]
+        rep = bot.rep_of(ctx, opp)
+        if bot.rep_hidden(rep):
+            continue
+        out.append({"id": opp["id"], "rep": str(rep).split()[0] if rep else "Unassigned",
+                    "at": when.isoformat(timespec="seconds"),
+                    "value": bot.amount_value(opp.get("amount")) or ev.get("amount_value") or 0.0,
+                    "company": bot.company_field(opp, ctx, "name") or bot.deal_title(opp, ctx)})
+    return sorted(out, key=lambda w: w["at"], reverse=True)
 
 
 def _encrypt(obj, key):
