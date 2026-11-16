@@ -53,8 +53,15 @@ jobs:
           openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:TWENTY_TOKEN \
             -in handoff.enc | tar xz && echo "imported Mac state" || echo "handoff not usable; seeding fresh"
 
+      # Only needed for the encrypted leaderboard snapshot (board.py).
+      - name: Install board crypto
+        run: pip install --quiet cryptography
+
       - name: Run the bot
         env:
+          # Live submissions leaderboard on GitHub Pages (board.py / board.yml).
+          BOARD_KEY: ${{ secrets.BOARD_KEY }}
+          GH_TOKEN: ${{ github.token }}
           TWENTY_TOKEN: ${{ secrets.TWENTY_TOKEN_LONDON }}
           # New Twenty, Corgi Ventures London team only (2026-10-07).
           TWENTY_BASE: "https://corgi-ventures.crm.corgiinsure.com"

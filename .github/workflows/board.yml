@@ -1,0 +1,40 @@
+name: board
+
+# Deploys the live submissions leaderboard to GitHub Pages. Dispatched by the
+# poll run (board.py) whenever today's tally changes. `data` is AES-GCM
+# ciphertext: the key is only in BOARD_KEY and in the page link's #fragment,
+# so this public repo, its logs and the Pages site never hold readable names.
+on:
+  workflow_dispatch:
+    inputs:
+      data:
+        description: "Encrypted board snapshot (base64)"
+        required: true
+
+concurrency:
+  group: board-pages
+  cancel-in-progress: true
+
+permissions:
+  pages: write
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: site
+      - name: Write snapshot
+        env:
+          DATA: ${{ inputs.data }}
+        run: printf '%s' "$DATA" > site/board.txt
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - uses: actions/deploy-pages@v4

@@ -1170,6 +1170,11 @@ def poll_once(cfg, tg, state, caches, seed=False):
             won_gif(cfg, tg)
         log(f"sent {kind}: {msg.splitlines()[0][:70]}")
     try:
+        import board
+        board.publish(cfg, state, live, caches)
+    except Exception:
+        log("board publish failed:\n" + traceback.format_exc())
+    try:
         chase_submissions(cfg, tg, live, bool(cleared))
     except Exception:
         log("submission chaser failed:\n" + traceback.format_exc())

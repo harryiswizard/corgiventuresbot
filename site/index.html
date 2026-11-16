@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Submissions Today</title>
+<style>
+:root{--bg:#0b0f17;--card:#141a26;--line:#222b3b;--ink:#eef2f8;--mute:#8a96aa;--gold:#f5c542;--silver:#c9d1dc;--bronze:#d08a4f;--accent:#4ade80;--bar:#2b6cff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;min-height:100vh}
+main{max-width:1100px;margin:0 auto;padding:28px 16px 40px}
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+h1{margin:0;font-size:clamp(26px,4vw,44px);letter-spacing:-.02em}
+.sub{color:var(--mute);margin-top:4px}
+.total{text-align:right}
+.total b{display:block;font-size:clamp(48px,8vw,96px);line-height:1;font-variant-numeric:tabular-nums}
+.total span{color:var(--mute)}
+.grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}.total{text-align:left}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
+.card h2{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:.08em;color:var(--mute);font-weight:600}
+.row{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:12px;padding:12px 6px;border-bottom:1px solid var(--line);position:relative}
+.row:last-child{border-bottom:0}
+.pos{font-size:22px;text-align:center;font-weight:700;color:var(--mute)}
+.name{font-size:clamp(18px,2.4vw,26px);font-weight:600}
+.meta{color:var(--mute);font-size:13px}
+.track{height:6px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}
+.track i{display:block;height:100%;background:var(--bar);border-radius:3px;transition:width .6s}
+.row:nth-child(1) .track i{background:var(--gold)}
+.n{font-size:clamp(28px,4vw,44px);font-weight:800;font-variant-numeric:tabular-nums}
+.flash{animation:flash 2.4s ease-out}
+@keyframes flash{0%{background:rgba(74,222,128,.35)}100%{background:transparent}}
+.feed div{padding:9px 0;border-bottom:1px solid var(--line)}
+.feed div:last-child{border-bottom:0}
+.feed b{color:var(--accent)}
+.feed small{color:var(--mute);display:block}
+.empty{color:var(--mute);padding:20px 6px}
+footer{margin-top:18px;color:var(--mute);font-size:13px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--mute);margin-right:6px}
+.dot.live{background:var(--accent);box-shadow:0 0 8px var(--accent)}
+button{background:var(--line);color:var(--ink);border:0;border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer}
+#gate{position:fixed;inset:0;background:rgba(5,8,14,.92);display:flex;align-items:center;justify-content:center;z-index:9;text-align:center;padding:16px}
+#gate button{font-size:20px;padding:16px 28px;background:var(--bar)}
+#gate p{color:var(--mute)}
+#toast{position:fixed;left:50%;top:24px;transform:translate(-50%,-140%);background:var(--accent);color:#05210f;font-weight:800;font-size:clamp(20px,3vw,32px);padding:14px 26px;border-radius:14px;transition:transform .4s;z-index:8;max-width:calc(100% - 32px);text-align:center}
+#toast.show{transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<div id="gate"><div><button id="start">🔔 Start leaderboard</button><p id="gatemsg">Click once so the bell can ring.</p></div></div>
+<div id="toast"></div>
+<main>
+  <header>
+    <div><h1>🏆 Submissions Today</h1><div class="sub" id="day">—</div></div>
+    <div class="total"><b id="total">–</b><span>submissions</span></div>
+  </header>
+  <div class="grid">
+    <section class="card"><h2>Leaderboard</h2><div id="board"><div class="empty">Waiting for data…</div></div></section>
+    <section class="card"><h2>Latest</h2><div class="feed" id="feed"></div></section>
+  </div>
+  <footer><span><span class="dot" id="dot"></span><span id="status">Connecting…</span></span>
+    <span><button id="mute">🔔 Sound on</button> <button id="test">Test bell</button></span></footer>
+</main>
+<script>
+const KEY = new URLSearchParams(location.hash.slice(1)).get("k");
+const POLL_MS = 10000;
+let cryptoKey, last = null, muted = false, ctx;
+const $ = id => document.getElementById(id);
+const MEDAL = ["🥇","🥈","🥉"];
+
+function b64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");s+="=".repeat((4-s.length%4)%4);return Uint8Array.from(atob(s),c=>c.charCodeAt(0));}
+async function decrypt(txt){
+  const raw=b64(txt.trim());
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:raw.slice(0,12)},cryptoKey,raw.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+
+function bell(times=1){
+  if(muted||!ctx) return;
+  for(let k=0;k<times;k++){
+    const t0=ctx.currentTime+k*0.55;
+    [[880,1],[1320,.5],[1760,.3],[2640,.15]].forEach(([f,g])=>{
+      const o=ctx.createOscillator(),v=ctx.createGain();
+      o.type="sine";o.frequency.value=f;
+      v.gain.setValueAtTime(0,t0);v.gain.linearRampToValueAtTime(.35*g,t0+.01);
+      v.gain.exponentialRampToValueAtTime(.0001,t0+2.2);
+      o.connect(v).connect(ctx.destination);o.start(t0);o.stop(t0+2.3);
+    });
+  }
+}
+function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove("show"),6000);}
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const hm=iso=>iso?new Date(iso).toLocaleTimeString([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET":"";
+
+function render(d, bumped){
+  const day=new Date(d.day+"T12:00:00");
+  $("day").textContent=day.toLocaleDateString([], {weekday:"long",month:"long",day:"numeric"})+" · Eastern time";
+  $("total").textContent=d.total;
+  const max=Math.max(1,...d.reps.map(r=>r.count));
+  $("board").innerHTML=d.reps.length?d.reps.map((r,i)=>`
+    <div class="row${bumped.has(r.name)?" flash":""}">
+      <div class="pos">${MEDAL[i]||i+1}</div>
+      <div><div class="name">${esc(r.name)}</div><div class="meta">last at ${hm(r.last)}</div>
+        <div class="track"><i style="width:${r.count/max*100}%"></i></div></div>
+      <div class="n">${r.count}</div>
+    </div>`).join(""):`<div class="empty">No submissions yet today. First one rings the bell 🔔</div>`;
+  $("feed").innerHTML=d.feed.length?d.feed.map(f=>`<div><b>${esc(f.rep)}</b> · ${esc(f.company)}<small>${hm(f.at)} · ${esc(f.stage)}</small></div>`).join(""):`<div class="empty">Nothing yet.</div>`;
+}
+
+async function poll(){
+  try{
+    const r=await fetch("board.txt?t="+Date.now(),{cache:"no-store"});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const d=await decrypt(await r.text());
+    const bumped=new Set();
+    let gained=0;
+    if(last && last.day===d.day){
+      const before=Object.fromEntries(last.reps.map(x=>[x.name,x.count]));
+      for(const x of d.reps){const g=x.count-(before[x.name]||0);if(g>0){bumped.add(x.name);gained+=g;}}
+    }
+    if(!last||JSON.stringify(last.reps)!==JSON.stringify(d.reps)||last.day!==d.day) render(d,bumped);
+    if(gained>0){
+      bell(Math.min(gained,3));
+      const who=[...bumped].join(" & "), lead=d.reps[0];
+      toast(`🔔 ${who} just submitted!${lead&&bumped.has(lead.name)?" 👑 "+lead.name+" leads":""}`);
+    }
+    last=d;
+    const age=(Date.now()-new Date(d.generatedAt))/60000;
+    $("dot").className="dot"+(age<45?" live":"");
+    $("status").textContent=age<45?`Live · updated ${new Date(d.generatedAt).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`:`Bot quiet for ${Math.round(age)} min`;
+  }catch(e){
+    $("dot").className="dot";
+    $("status").textContent=e.name==="OperationError"?"Wrong key in the link":"Can't reach the board ("+e.message+")";
+  }
+}
+
+$("start").onclick=async()=>{
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  await ctx.resume();
+  $("gate").remove();
+  poll();setInterval(poll,POLL_MS);
+};
+$("mute").onclick=()=>{muted=!muted;$("mute").textContent=muted?"🔕 Muted":"🔔 Sound on";};
+$("test").onclick=()=>{const m=muted;muted=false;bell();muted=m;};
+
+(async()=>{
+  if(!KEY){$("start").disabled=true;$("gatemsg").textContent="This link is missing its key (#k=…). Ask Harry for the full link.";return;}
+  try{cryptoKey=await crypto.subtle.importKey("raw",b64(KEY),"AES-GCM",false,["decrypt"]);}
+  catch(e){$("gatemsg").textContent="That key isn't valid.";$("start").disabled=true;}
+})();
+</script>
+</body>
+</html>
