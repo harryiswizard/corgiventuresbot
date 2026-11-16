@@ -73,7 +73,7 @@ jobs:
           # is posted once to the team-requests API for Yusef (bot.py).
           UW_API_KEY: ${{ secrets.UW_API_KEY }}
           # Group id from the team-requests API; empty = ping switched off.
-          UW_GROUP_ID: ""
+          UW_GROUP_ID: "-1004324787090"
           UW_REQUESTED_BY: "@yusefshkh456"
           # Owner DM first, then the group; pings go to the pinned topic.
           TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
