@@ -16,6 +16,8 @@ h1{margin:0;font-size:clamp(26px,4vw,44px);letter-spacing:-.02em}
 .total{text-align:right}
 .total b{display:block;font-size:clamp(48px,8vw,96px);line-height:1;font-variant-numeric:tabular-nums}
 .total span{color:var(--mute)}
+.money{font-size:clamp(22px,3vw,34px);font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+.nv{text-align:right}.nv .v{color:var(--accent);font-weight:700;font-size:clamp(14px,1.8vw,20px);font-variant-numeric:tabular-nums}
 .grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}
 @media(max-width:800px){.grid{grid-template-columns:1fr}.total{text-align:left}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px}
@@ -53,7 +55,7 @@ button{background:var(--line);color:var(--ink);border:0;border-radius:8px;paddin
 <main>
   <header>
     <div><h1>🏆 Submissions Today</h1><div class="sub" id="day">—</div></div>
-    <div class="total"><b id="total">–</b><span>submissions</span></div>
+    <div class="total"><b id="total">–</b><span>submissions</span><div class="money" id="totalv"></div></div>
   </header>
   <div class="grid">
     <section class="card"><h2>Leaderboard</h2><div id="board"><div class="empty">Waiting for data…</div></div></section>
@@ -91,21 +93,23 @@ function bell(times=1){
 }
 function toast(msg){const t=$("toast");t.textContent=msg;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(()=>t.classList.remove("show"),6000);}
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const usd=v=>"$"+Math.round(v||0).toLocaleString("en-US");
 const hm=iso=>iso?new Date(iso).toLocaleTimeString([], {hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET":"";
 
 function render(d, bumped){
   const day=new Date(d.day+"T12:00:00");
   $("day").textContent=day.toLocaleDateString([], {weekday:"long",month:"long",day:"numeric"})+" · Eastern time";
   $("total").textContent=d.total;
+  $("totalv").textContent=usd(d.totalValue);
   const max=Math.max(1,...d.reps.map(r=>r.count));
   $("board").innerHTML=d.reps.length?d.reps.map((r,i)=>`
     <div class="row${bumped.has(r.name)?" flash":""}">
       <div class="pos">${MEDAL[i]||i+1}</div>
       <div><div class="name">${esc(r.name)}</div><div class="meta">last at ${hm(r.last)}</div>
         <div class="track"><i style="width:${r.count/max*100}%"></i></div></div>
-      <div class="n">${r.count}</div>
+      <div class="nv"><div class="n">${r.count}</div><div class="v">${usd(r.value)}</div></div>
     </div>`).join(""):`<div class="empty">No submissions yet today. First one rings the bell 🔔</div>`;
-  $("feed").innerHTML=d.feed.length?d.feed.map(f=>`<div><b>${esc(f.rep)}</b> · ${esc(f.company)}<small>${hm(f.at)} · ${esc(f.stage)}</small></div>`).join(""):`<div class="empty">Nothing yet.</div>`;
+  $("feed").innerHTML=d.feed.length?d.feed.map(f=>`<div><b>${esc(f.rep)}</b> · ${esc(f.company)}${f.value?` · <b>${usd(f.value)}</b>`:""}<small>${hm(f.at)} · ${esc(f.stage)}</small></div>`).join(""):`<div class="empty">Nothing yet.</div>`;
 }
 
 async function poll(){
@@ -119,11 +123,11 @@ async function poll(){
       const before=Object.fromEntries(last.reps.map(x=>[x.name,x.count]));
       for(const x of d.reps){const g=x.count-(before[x.name]||0);if(g>0){bumped.add(x.name);gained+=g;}}
     }
-    if(!last||JSON.stringify(last.reps)!==JSON.stringify(d.reps)||last.day!==d.day) render(d,bumped);
+    if(!last||JSON.stringify([last.reps,last.feed])!==JSON.stringify([d.reps,d.feed])||last.day!==d.day) render(d,bumped);
     if(gained>0){
       bell(Math.min(gained,3));
       const who=[...bumped].join(" & "), lead=d.reps[0];
-      toast(`🔔 ${who} just submitted!${lead&&bumped.has(lead.name)?" 👑 "+lead.name+" leads":""}`);
+      toast(`🔔 ${who} just submitted! ${usd(d.totalValue)} today.${lead&&bumped.has(lead.name)?" 👑 "+lead.name+" leads":""}`);
     }
     last=d;
     const age=(Date.now()-new Date(d.generatedAt))/60000;

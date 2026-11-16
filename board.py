@@ -54,11 +54,13 @@ def snapshot(cfg, state, live, caches):
         r["value"] += bot.amount_value(opp.get("amount")) or 0.0
         r["last"] = made.isoformat(timespec="seconds")
         feed.append({"rep": first, "at": made.isoformat(timespec="seconds"),
+                     "value": bot.amount_value(opp.get("amount")) or 0.0,
                      "company": bot.company_field(opp, ctx, "name") or bot.deal_title(opp, ctx),
                      "stage": bot.stage_label(opp.get("stage"))})
     ranked = sorted(reps.values(), key=lambda r: (-r["count"], -r["value"], r["name"]))
     return {"day": today.isoformat(), "reps": ranked, "feed": feed[-12:][::-1],
-            "total": sum(r["count"] for r in ranked)}
+            "total": sum(r["count"] for r in ranked),
+            "totalValue": round(sum(r["value"] for r in ranked), 2)}
 
 
 def _encrypt(obj, key):
