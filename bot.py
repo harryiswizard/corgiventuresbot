@@ -955,6 +955,73 @@ def in_quiet_hours(cfg):
     return (start <= h or h < end) if start > end else (start <= h < end)
 
 
+# ------------------------------------------------- underwriting review ping
+# A deal landing on Submission Received was quoted but went to underwriting
+# review. Each one is posted once to the team-requests API (Telegram / Relay
+# chat) so Yusef checks it. Ids already sent live in state/uw_pinged.json.
+UW_FILE = os.path.join(STATE_DIR, "uw_pinged.json")
+UW_URL = os.environ.get("UW_API_URL",
+                        "https://oleqnjeezkorwepjmwvx.supabase.co/functions/v1/team-requests")
+UW_GROUP_ID = os.environ.get("UW_GROUP_ID", "").strip()  # off until set
+UW_REQUESTED_BY = os.environ.get("UW_REQUESTED_BY", "@yusefshkh456")
+
+
+def uw_text(cfg, opp, ctx):
+    name = deal_title(opp, ctx)
+    bits = [f"{name} is quoted but went to underwriting review, can you check?"]
+    partner = company_field(opp, ctx, "name")
+    if partner:
+        bits.append(f"Partner: {partner}")
+    owner = deal_owner(ctx, opp)
+    if owner:
+        bits.append(f"Rep: {owner}")
+    amt = money(opp.get("amount"))
+    if amt:
+        bits.append(f"Amount: {amt}")
+    link = (opp.get("atlasQuoteLink") or {}).get("primaryLinkUrl") or ""
+    bits.append(f"Atlas: {link.strip()}" if link.strip()
+                else f"Twenty: {deal_url(cfg, opp['id'])}")
+    return "\n".join(bits)
+
+
+def uw_post(text):
+    body = json.dumps({"text": text, "groupId": int(UW_GROUP_ID),
+                       "requestedBy": UW_REQUESTED_BY}).encode()
+    req = urllib.request.Request(UW_URL, data=body, method="POST", headers={
+        "Authorization": f"Bearer {os.environ['UW_API_KEY']}",
+        "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return r.status, r.read()[:300].decode("utf-8", "replace")
+
+
+def ping_underwriting(cfg, live, caches):
+    """Post every deal sitting on Submission Received that hasn't been sent yet."""
+    if not (os.environ.get("UW_API_KEY") and UW_GROUP_ID):
+        return
+    sent = load_json(UW_FILE, None)
+    queue = [o for o in live.values() if o.get("stage") == "QUOTE_RECEIVED"]
+    if sent is None:
+        # First run: the current backlog counts as done; only new arrivals fire.
+        save_json(UW_FILE, sorted(o["id"] for o in queue))
+        log(f"uw ping: seeded {len(queue)} deals already on Submission Received")
+        return
+    sent = set(sent)
+    todo = [o for o in queue if o["id"] not in sent and not hidden(o)
+            and is_submitted(o, cfg)[0]]
+    if not todo:
+        return
+    ctx = build_ctx(todo, caches)
+    for opp in todo:
+        try:
+            status, resp = uw_post(uw_text(cfg, opp, ctx))
+            sent.add(opp["id"])
+            log(f"uw ping {status}: {deal_title(opp, ctx)[:60]} {resp[:120]}")
+        except Exception as e:
+            detail = e.read()[:200].decode("utf-8", "replace") if hasattr(e, "read") else ""
+            log(f"uw ping failed for {opp['id']}: {e} {detail}")  # retried next poll
+    save_json(UW_FILE, sorted(sent))
+
+
 # ------------------------------------------------------- submission chaser
 SLOW_FILE = os.path.join(STATE_DIR, "slow_nag.json")
 _SCOLDS = [
@@ -1136,6 +1203,10 @@ def poll_once(cfg, tg, state, caches, seed=False):
         poll_appointments(cfg, tg, seed=True)
         return 0
     poll_appointments(cfg, tg)
+    try:
+        ping_underwriting(cfg, live, caches)
+    except Exception:
+        log("uw ping failed:\n" + traceback.format_exc())
     if waiting:
         log(f"{waiting} new deal(s) not submitted yet; holding")
     if pending and in_quiet_hours(cfg):

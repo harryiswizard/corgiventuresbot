@@ -69,6 +69,12 @@ jobs:
           TWENTY_OPP_OBJECT_ID: "032a6849-022d-444d-b130-5cf67096cd6d"
           APP_BASE_URL: "https://corgi-ventures.crm.corgiinsure.com"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # Submission Received = quoted but in underwriting review: each deal
+          # is posted once to the team-requests API for Yusef (bot.py).
+          UW_API_KEY: ${{ secrets.UW_API_KEY }}
+          # Group id from the team-requests API; empty = ping switched off.
+          UW_GROUP_ID: ""
+          UW_REQUESTED_BY: "@yusefshkh456"
           # Owner DM first, then the group; pings go to the pinned topic.
           TELEGRAM_CHAT_ID: "5680104831,-1004435246978"
           TELEGRAM_HOME: "-1004435246978:7040"
