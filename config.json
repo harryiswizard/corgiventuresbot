@@ -6,7 +6,7 @@
   "_include_unassigned": "Also watch deals with no pipeline set (usually mis-keyed E&S deals).",
   "include_unassigned": true,
   "_poll_seconds": "Seconds between polls. Polls are incremental (only deals edited since the last one), with a full fetch every 2 min, so 5s stays well under Twenty's 100 requests/min.",
-  "poll_seconds": 5,
+  "poll_seconds": 3,
   "app_base_url": "https://app.twenty.com",
   "timezone": "America/New_York",
   "notify_new": true,

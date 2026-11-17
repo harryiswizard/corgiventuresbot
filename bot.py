@@ -1206,11 +1206,6 @@ def poll_once(cfg, tg, state, caches, seed=False):
         log(f"seeded {len(state)} deals; notifying from the next poll")
         poll_appointments(cfg, tg, seed=True)
         return 0
-    poll_appointments(cfg, tg)
-    try:
-        ping_underwriting(cfg, live, caches)
-    except Exception:
-        log("uw ping failed:\n" + traceback.format_exc())
     if waiting:
         log(f"{waiting} new deal(s) not submitted yet; holding")
     if pending and in_quiet_hours(cfg):
@@ -1244,16 +1239,44 @@ def poll_once(cfg, tg, state, caches, seed=False):
         if kind == "won":
             won_gif(cfg, tg)
         log(f"sent {kind}: {msg.splitlines()[0][:70]}")
-    try:
-        import board
-        board.publish(cfg, state, live, caches)
-    except Exception:
-        log("board publish failed:\n" + traceback.format_exc())
-    try:
-        chase_submissions(cfg, tg, live, bool(cleared))
-    except Exception:
-        log("submission chaser failed:\n" + traceback.format_exc())
+    # Cards are out; everything else (appointed Partners, the UW ticket API,
+    # the leaderboard dispatch, the chaser) runs off the poll's critical path
+    # so it can never delay the next card.
+    after_cards(cfg, tg, state, live, caches, bool(cleared))
     return len(pending)
+
+
+_SIDE_LOCK = threading.Lock()
+
+
+def _side_jobs(cfg, tg, state, live, caches, cleared):
+    for name, job in (
+            ("appointments", lambda: poll_appointments(cfg, tg)),
+            ("uw ping", lambda: ping_underwriting(cfg, live, caches)),
+            ("board publish", lambda: __import__("board").publish(cfg, state, live, caches)),
+            ("submission chaser", lambda: chase_submissions(cfg, tg, live, cleared))):
+        try:
+            job()
+        except tw.TwentyError as e:
+            log(f"{name} failed: {e}")
+        except Exception:
+            log(f"{name} failed:\n" + traceback.format_exc())
+
+
+def after_cards(cfg, tg, state, live, caches, cleared):
+    """Run the side jobs on a background thread. One batch at a time: if the
+    last batch is still going (slow UW API, GitHub dispatch), skip this round;
+    the next poll picks up anything outstanding, so nothing is double-posted."""
+    if not _SIDE_LOCK.acquire(blocking=False):
+        return
+    live, state = dict(live), dict(state)
+
+    def run():
+        try:
+            _side_jobs(cfg, tg, state, live, caches, cleared)
+        finally:
+            _SIDE_LOCK.release()
+    threading.Thread(target=run, name="side-jobs", daemon=True).start()
 
 
 # ------------------------------------------------------------------ commands
@@ -1747,40 +1770,48 @@ def main():
         return
 
     if mode == "loop":
-        # GitHub Actions cannot schedule more often than every 5 minutes, but a
-        # single run can keep polling while it is alive. One run per cron tick
-        # polls every `poll_seconds` for RUN_SECONDS and then exits, which gets
-        # the delay down from ~5 minutes to the poll interval.
+        # GitHub Actions: one run lives for RUN_SECONDS. Polling and Telegram
+        # commands run on separate threads (as in serve), so a report never
+        # delays a card and a poll never delays a reply.
         budget = int(os.environ.get("RUN_SECONDS") or 240)
         deadline = time.time() + budget
-        seed = not state
-        polls = 0
         log(f"loop: {budget}s budget, polling every {cfg['poll_seconds']}s")
-        while time.time() < deadline:
-            started = time.time()
+        stats = {"polls": 0}
+
+        def loop_poller():
+            seed = not state
+            while time.time() < deadline:
+                started = time.time()
+                try:
+                    poll_once(cfg, tg, state, caches, seed=seed)
+                    seed = False
+                    stats["polls"] += 1
+                    if stats["polls"] == 1:
+                        warm_ctx(caches)
+                    wait = cfg["poll_seconds"] - (time.time() - started)
+                except tw.TwentyError as e:
+                    log(f"poll failed: {e}")
+                    key_alert(tg, e)
+                    wait = 30
+                except Exception:
+                    log("poll crashed:\n" + traceback.format_exc())
+                    wait = 30
+                time.sleep(max(0.5, min(wait, deadline - time.time())))
+
+        poller_t = threading.Thread(target=loop_poller, name="poller", daemon=True)
+        poller_t.start()
+        while time.time() < deadline and poller_t.is_alive():
             try:
-                poll_once(cfg, tg, state, caches, seed=seed)
-                seed = False
-                polls += 1
-                if polls == 1:
-                    warm_ctx(caches)
-            except tw.TwentyError as e:
-                log(f"poll failed: {e}")
-                key_alert(tg, e)
-            except Exception:
-                log("poll crashed:\n" + traceback.format_exc())
-            left = deadline - time.time()
-            if left <= 0:
-                break
-            # The Telegram long poll doubles as the wait between polls.
-            wait = max(1, min(int(cfg["poll_seconds"] - (time.time() - started)),
-                              int(left)))
-            try:
-                drain_commands(cfg, tg, state, caches, wait=wait)
+                drain_commands(cfg, tg, state, caches,
+                               wait=max(1, min(25, int(deadline - time.time()))))
             except Exception:
                 log("command loop error:\n" + traceback.format_exc())
-                time.sleep(min(5, max(1, left)))
-        log(f"loop done: {polls} polls")
+                time.sleep(5)
+        poller_t.join(timeout=60)
+        # Let an in-flight side-job batch finish so its state is saved.
+        if _SIDE_LOCK.acquire(timeout=60):
+            _SIDE_LOCK.release()
+        log(f"loop done: {stats['polls']} polls")
         return
 
     if mode == "once":
@@ -1818,7 +1849,6 @@ def main():
                 wait = max(cfg["poll_seconds"], 120)
             time.sleep(wait)
 
-    import threading
     threading.Thread(target=poller, name="poller", daemon=True).start()
     while True:
         try:
