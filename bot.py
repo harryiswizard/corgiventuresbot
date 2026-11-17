@@ -966,59 +966,15 @@ UW_GROUP_ID = os.environ.get("UW_GROUP_ID", "").strip()  # off until set
 UW_REQUESTED_BY = os.environ.get("UW_REQUESTED_BY", "@yusefshkh456")
 
 
-FIXER = {"underwriter": "UW to clear", "applicant": "broker to supply info",
-         "none": "not clearable, decline or requote"}
-
-
-def uw_reasons(opp):
-    """Why the quote went to manual review and what clears it.
-
-    Reads Atlas `review_reasons` from the deal's `reviewReasons` field: either
-    plain text, or the Atlas JSON list ({coverage, reason, codes[{title,
-    message, fixable_by}]}). Twenty has no such field yet; returns None.
-    """
-    raw = opp.get("reviewReasons")
-    if isinstance(raw, dict):
-        raw = raw.get("markdown") or raw.get("text")
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except ValueError:
-            return raw.strip() or None
-    if not isinstance(raw, list) or not raw:
-        return None
-    out = []
-    for r in raw:
-        line = "" if r.get("coverage") in (None, "", "system") else f"{r['coverage']}: "
-        codes = r.get("codes") or []
-        if codes:
-            parts = []
-            for c in codes:
-                what = c.get("title") or c.get("message") or c.get("code") or "review"
-                fix = FIXER.get(c.get("fixable_by"))
-                parts.append(f"{what} ({fix})" if fix else what)
-            line += "; ".join(parts)
-        else:
-            text = (r.get("reason") or "").strip()
-            for pre in ("Calculation failed: ", "referred; "):
-                text = text[len(pre):] if text.startswith(pre) else text
-            line += text or "review"
-        if r.get("indicated_premium"):
-            line += f" [indicated {money({'amountMicros': float(r['indicated_premium']) * 1e6})}]"
-        out.append(line)
-    return " | ".join(out)
-
-
 def uw_text(cfg, opp, ctx):
-    """[Manual Review] - Needs Cleared - <reason / what clears it> - <Atlas link + quote no.>"""
+    """[Manual Review] - Needs Cleared - <Atlas link> (Quote <no.>)"""
     name = deal_title(opp, ctx)
     link = ((opp.get("atlasQuoteLink") or {}).get("primaryLinkUrl") or "").strip()
     qns = " / ".join(dict.fromkeys(
         re.findall(r"[A-Z0-9]{8}", opp.get("atlasQuoteNumbers") or "")))
-    reason = uw_reasons(opp) or "reason not synced from Atlas, open the quote to see it"
     where = (f"{link} (Quote {qns})" if link and qns else link or
              (f"Quote {qns}" if qns else f"Twenty: {deal_url(cfg, opp['id'])}"))
-    bits = [f"[Manual Review] - Needs Cleared - {reason} - {where}", "",
+    bits = [f"[Manual Review] - Needs Cleared - {where}", "",
             f"Insured: {name}"]
     partner = company_field(opp, ctx, "name")
     if partner:
