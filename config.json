@@ -38,7 +38,8 @@
     "Zarret",
     "Darshan",
     "Kavaiya",
-    "Ayush"
+    "Ayush",
+    "Sayem"
   ],
   "_rep_telegram": "Deal Owner name (substring, case-insensitive) -> Telegram username; the card tags them",
   "rep_telegram": {
