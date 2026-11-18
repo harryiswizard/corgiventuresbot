@@ -1294,6 +1294,7 @@ COMMANDS = [
     ("bymonth", "Book growth month by month"),
     ("byweek", "Book growth week by week"),
     ("broker", "Top producing Partners by closed won"),
+    ("appointed", "Appointed agencies per rep: quoting vs not"),
 ]
 _BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
 HELP = ("<b>Twenty deal bot</b>\n"
@@ -1499,6 +1500,37 @@ def cmd_broker(cfg, caches):
     return "\n".join(lines)
 
 
+def cmd_appointed(cfg, caches):
+    """Appointed agencies per owner, split by whether each has quoted: at least
+    one deal at Quote Sent or later, the same test as /quotes."""
+    firms = [r for r in _APPTS.fresh() if r.get("appointed")]
+    sent = stage_rank("QUOTE_SENT")
+    quoting = {o.get("companyId") for o in live_opportunities()
+               if watched(o, cfg) and o.get("stage") in STAGE_ORDER
+               and stage_rank(o.get("stage")) >= sent}
+    if not firms:
+        return "\U0001f91d <b>Appointed agencies</b>\n\nNone appointed yet."
+
+    ctx = build_ctx([], caches)
+    total, active = {}, {}
+    for r in firms:
+        owner = r.get("partnerOwnerId") or r.get("accountOwnerId")
+        rep = member(ctx, owner) or "Unassigned"
+        total[rep] = total.get(rep, 0) + 1
+        active[rep] = active.get(rep, 0) + (r["id"] in quoting)
+
+    n_active = sum(active.values())
+    lines = [f"\U0001f91d <b>Appointed agencies \u2014 {len(firms)}</b>",
+             f"{n_active} quoting \u00b7 {len(firms) - n_active} not quoting", ""]
+    shown = [k for k in total if not rep_hidden(k)]
+    ranked = sorted(shown, key=lambda k: (-total[k], -active[k], k))
+    for i, rep in enumerate(ranked):
+        badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
+        lines.append(f"{badge} {esc(rep)} \u2014 <b>{total[rep]}</b>")
+        lines.append(f"   {active[rep]} quoting \u00b7 {total[rep] - active[rep]} not")
+    return "\n".join(lines)
+
+
 def cmd_byweek(cfg, caches):
     """Book growth by week (Mon-Sun): Closed Won premium per week (by Close
     date, else created date), the running book total and week-on-week growth."""
@@ -1591,7 +1623,7 @@ def cmd_deals(cfg, caches, arg=""):
 SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month",
                  "/yesterday", "/lastweek", "/lastmonth", "/deals",
                  "/pipeline", "/quotes", "/leaderboard", "/closed", "/won",
-                 "/bymonth", "/byweek", "/broker", "/brokers"}
+                 "/bymonth", "/byweek", "/broker", "/brokers", "/appointed"}
 
 
 def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
@@ -1633,6 +1665,8 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send_long(tg, cmd_byweek(cfg, caches), chat_id, thread_id)
         elif cmd in ("/broker", "/brokers"):
             send_long(tg, cmd_broker(cfg, caches), chat_id, thread_id)
+        elif cmd == "/appointed":
+            send_long(tg, cmd_appointed(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
             send(tg, f"Chat id: <code>{chat_id}</code>"
                  + (f" · topic <code>{thread_id}</code>" if thread_id else ""),
