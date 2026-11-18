@@ -1,9 +1,9 @@
 {
- "as_of": "2026-11-18T18:16Z",
+ "as_of": "2026-11-18T20:10Z",
  "owners": {
   "Allie K": {
    "quoting": 45,
-   "total": 89
+   "total": 90
   },
   "Avi Kochhar": {
    "quoting": 1,
@@ -11,7 +11,7 @@
   },
   "Chan Thilakawardana": {
    "quoting": 2,
-   "total": 9
+   "total": 10
   },
   "Dinesh Sharma": {
    "quoting": 13,
@@ -27,7 +27,7 @@
   },
   "Fin Knapp": {
    "quoting": 12,
-   "total": 27
+   "total": 26
   },
   "Frank Sexton": {
    "quoting": 1,
@@ -38,7 +38,7 @@
    "total": 18
   },
   "Jeevan Sandher": {
-   "quoting": 2,
+   "quoting": 3,
    "total": 8
   },
   "Jordan Solomon": {
@@ -59,7 +59,7 @@
   },
   "Matthew Bebb": {
    "quoting": 3,
-   "total": 11
+   "total": 12
   },
   "Ollie Maggs": {
    "quoting": 2,
@@ -67,7 +67,7 @@
   },
   "Terek Schwarz": {
    "quoting": 21,
-   "total": 33
+   "total": 34
   }
  }
 }
