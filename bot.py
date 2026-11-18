@@ -698,11 +698,12 @@ def poll_appointments(cfg, tg, seed=False):
         return 0
 
     live = {r["id"]: r for r in recs if r.get("appointed")}
+    silent = set(cfg.get("appointed_silent_ids") or [])
     sent = 0
     for cid, rec in live.items():
         if cid in known:
             continue
-        if not seed:
+        if not seed and cid not in silent:
             record_appointment(rec, True, cfg)
             send(tg, company_card(cfg, rec, appointed=True))
             log(f"sent appointed: {rec.get('name')}")
@@ -1501,8 +1502,9 @@ def cmd_broker(cfg, caches):
 
 
 def cmd_appointed(cfg, caches):
-    """Appointed agencies per owner, split by whether each has quoted: at least
-    one deal at Quote Sent or later, the same test as /quotes. Owners in config
+    """Appointed agencies per owner, split by whether each has quoted in Atlas:
+    at least one deal at Quote Sent or later carrying an Atlas quote number, so
+    hand-keyed deals from before Atlas don't count. Owners in config
     "appointed_hidden" or "hidden_reps" are left out of the totals too, so the
     list always adds up to the headline."""
     firms = [r for r in _APPTS.fresh() if r.get("appointed")]
@@ -1510,7 +1512,8 @@ def cmd_appointed(cfg, caches):
     sent = stage_rank("QUOTE_SENT")
     quoting = {o.get("companyId") for o in live_opportunities()
                if watched(o, cfg) and o.get("stage") in STAGE_ORDER
-               and stage_rank(o.get("stage")) >= sent}
+               and stage_rank(o.get("stage")) >= sent
+               and o.get("atlasQuoteNumbers")}
     ctx = build_ctx([], caches)
     total, active = {}, {}
     for r in firms:

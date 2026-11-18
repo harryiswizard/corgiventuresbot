@@ -46,6 +46,8 @@
     "Unassigned",
     "Anthony"
   ],
+  "_appointed_silent_ids": "Partners marked appointed by the 2026-11-18 Atlas sync: no 'newly appointed' card",
+  "appointed_silent_ids": ["ed1a601b-c63b-4ee6-b495-22fec8d33c76", "e0ea65d6-82c5-446a-a259-096e7d674fc5", "85dc85eb-31ee-41fe-b34a-b7ce037919a9", "d5c796c1-0c50-403b-aee5-833087ebf604", "495ed914-efac-42df-b9d5-1a06ca62802f"],
   "_rep_telegram": "Deal Owner name (substring, case-insensitive) -> Telegram username; the card tags them",
   "rep_telegram": {
     "Harry": "HarryPa1mer",
