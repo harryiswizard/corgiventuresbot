@@ -187,6 +187,8 @@ def arrivals(cfg, start, end, by_id):
     deal created at a stage counts as reaching it. A deal created straight at a
     stage has an empty create entry in the new Twenty, so its starting stage is
     taken from its first stage edit (or its current stage if never edited)."""
+    import bot
+    by_id = {i: o for i, o in by_id.items() if not bot.is_backfill(o, cfg)}
     start = _since(cfg, start)
     out = {}
     if start > end or not by_id:
@@ -269,9 +271,12 @@ def reached_stage(cfg, start, end, by_id, stage):
 
 def new_deals(cfg, start, end, by_id):
     """Deals created in Twenty in the window (migration copies excluded)."""
+    import bot
     start = _since(cfg, start)
     out = []
     for o in by_id.values():
+        if bot.is_backfill(o, cfg):
+            continue
         try:
             made = datetime.fromisoformat((o.get("createdAt") or "").replace("Z", "+00:00"))
         except ValueError:

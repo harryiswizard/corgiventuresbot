@@ -1092,6 +1092,13 @@ def chase_submissions(cfg, tg, live, cleared):
     log(f"scolded {c['who']}: {len(queue)} on {sr}")
 
 
+def is_backfill(opp, cfg):
+    """A historic Atlas quote added to Twenty after the fact (config
+    "backfill_quotes"): never announced, and not counted as new activity."""
+    wanted = set(cfg.get("backfill_quotes") or [])
+    return bool(wanted and wanted & set(str(opp.get("atlasQuoteNumbers") or "").replace("/", " ").split()))
+
+
 def poll_once(cfg, tg, state, caches, seed=False):
     opps = _OPPS.get()
     live = {o["id"]: o for o in opps if watched(o, cfg)}
@@ -1104,17 +1111,18 @@ def poll_once(cfg, tg, state, caches, seed=False):
         if prev is None:
             # First sighting: record it, announce nothing. The row may be a
             # half-filled form someone has only just opened.
+            quiet = is_backfill(opp, cfg)
             state[oid] = {"stage": opp.get("stage"), "name": opp.get("name"),
                           "pipeline": opp.get("pipeline"),
                           # A seed (fresh host, new workspace) records live deals
                           # quietly, but drafts stay held so they still go out
                           # when someone ticks Submitted.
-                          "announced": bool(seed and is_submitted(opp, cfg)[0]),
+                          "announced": bool(quiet or (seed and is_submitted(opp, cfg)[0])),
                           "submitted": bool(opp.get(cfg.get("submitted_field")
                                                     or "submitted")),
                           "first_seen": now_local(cfg).isoformat(timespec="seconds"),
                           "updatedAt": opp.get("updatedAt")}
-            if not seed:
+            if not seed and not quiet:
                 # Atlas ticks Submitted when it creates the deal, so a ticked
                 # deal goes out on first sight instead of a poll later.
                 if (opp.get(cfg.get("submitted_field") or "submitted")

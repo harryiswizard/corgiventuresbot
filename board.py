@@ -34,7 +34,8 @@ def snapshot(cfg, state, live, caches):
     since = bot.parse_iso(cfg.get("history_since"))
     subs = []
     for oid, opp in live.items():
-        if bot.hidden(opp) or not (state.get(oid) or {}).get("announced"):
+        if (bot.hidden(opp) or bot.is_backfill(opp, cfg)
+                or not (state.get(oid) or {}).get("announced")):
             continue
         made = bot.parse_iso(opp.get("createdAt"))
         if not made or (since and made < since):
