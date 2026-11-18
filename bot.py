@@ -1150,7 +1150,7 @@ def poll_once(cfg, tg, state, caches, seed=False):
             log(f"{deal_title(opp)} un-submitted; back to draft")
             continue
         if prev.get("stage") != opp.get("stage"):
-            if hidden(opp):
+            if hidden(opp) or is_backfill(opp, cfg):
                 log(f"{deal_title(opp)} moved to {opp.get('stage')}; ignored")
                 continue
             changes.append(("stage", opp, prev.get("stage")))
