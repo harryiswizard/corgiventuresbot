@@ -285,7 +285,7 @@ def quotes_sent(cfg, start, end, by_id):
     return reached_stage(cfg, start, end, by_id, "QUOTE_SENT")
 
 
-def quotes_section(cfg, start, end, by_id, caches, sent_evs):
+def quotes_section(cfg, start, end, by_id, caches, sent_evs, limit=10):
     """Quotes sent in the window, with a rep leaderboard."""
     import bot
     ctx = bot.build_ctx(list(by_id.values()), caches or ({}, {}))
@@ -304,7 +304,7 @@ def quotes_section(cfg, start, end, by_id, caches, sent_evs):
         rep_value[rep] = rep_value.get(rep, 0.0) + v
         total += v
     return ([f"{OUTBOX} <b>Quotes sent: {len(rows)} · {fmt_money(total)}</b>"]
-            + leaderboard(tally, rep_value))
+            + leaderboard(tally, rep_value, limit=limit))
 
 
 def report(cfg, period, caches=None, previous=False):
@@ -317,6 +317,9 @@ def report(cfg, period, caches=None, previous=False):
              if previous else
              {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}).get(period, "Report")
     lines = [f"<b>{label} \u2014 {title}</b>"]
+    # Short format (Harry 2026-11-18): everything except today's /daily.
+    short = previous or period in ("weekly", "monthly")
+    top = 5 if short else 10
     try:
         counts, total, values, by_id = snapshot(cfg)
         arr = arrivals(cfg, start, end, by_id)
@@ -361,10 +364,18 @@ def report(cfg, period, caches=None, previous=False):
             rep = bot.rep_of(ctx, o)
             tally[rep] = tally.get(rep, 0) + 1
             rep_value[rep] = rep_value.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
-        lines += leaderboard(tally, rep_value, by_value=True)
+        lines += leaderboard(tally, rep_value, by_value=True, limit=top)
     else:
         lines.append("")
-    lines += quotes_section(cfg, start, end, by_id, caches, [])
+    lines += quotes_section(cfg, start, end, by_id, caches, [], limit=top)
+
+    if short:
+        open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
+        lines.append(f"\n{NEW} <b>New deals: {len(new_deals(cfg, start, end, by_id))}</b>")
+        lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
+        lines.append(f"Closed won to date: <b>{counts.get('CLOSED_WON', 0)} \u00b7 "
+                     f"{fmt_money(values.get('CLOSED_WON') or 0)}</b>")
+        return "\n".join(lines)
 
     if cfg.get("show_appointments", True):
         lines.append(f"\n\U0001f91d <b>Agencies appointed: {len(appointed)}</b>")
