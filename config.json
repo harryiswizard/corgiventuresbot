@@ -41,6 +41,11 @@
     "Ayush",
     "Sayem"
   ],
+  "_appointed_hidden": "Owners left out of /appointed, list and totals (name substring, case-insensitive)",
+  "appointed_hidden": [
+    "Unassigned",
+    "Anthony"
+  ],
   "_rep_telegram": "Deal Owner name (substring, case-insensitive) -> Telegram username; the card tags them",
   "rep_telegram": {
     "Harry": "HarryPa1mer",

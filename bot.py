@@ -1502,28 +1502,31 @@ def cmd_broker(cfg, caches):
 
 def cmd_appointed(cfg, caches):
     """Appointed agencies per owner, split by whether each has quoted: at least
-    one deal at Quote Sent or later, the same test as /quotes."""
+    one deal at Quote Sent or later, the same test as /quotes. Owners in config
+    "appointed_hidden" or "hidden_reps" are left out of the totals too, so the
+    list always adds up to the headline."""
     firms = [r for r in _APPTS.fresh() if r.get("appointed")]
+    skip = [h.lower() for h in cfg.get("appointed_hidden") or [] if h]
     sent = stage_rank("QUOTE_SENT")
     quoting = {o.get("companyId") for o in live_opportunities()
                if watched(o, cfg) and o.get("stage") in STAGE_ORDER
                and stage_rank(o.get("stage")) >= sent}
-    if not firms:
-        return "\U0001f91d <b>Appointed agencies</b>\n\nNone appointed yet."
-
     ctx = build_ctx([], caches)
     total, active = {}, {}
     for r in firms:
         owner = r.get("partnerOwnerId") or r.get("accountOwnerId")
         rep = member(ctx, owner) or "Unassigned"
+        if rep_hidden(rep) or any(h in rep.lower() for h in skip):
+            continue
         total[rep] = total.get(rep, 0) + 1
         active[rep] = active.get(rep, 0) + (r["id"] in quoting)
+    if not total:
+        return "\U0001f91d <b>Appointed agencies</b>\n\nNone appointed yet."
 
-    n_active = sum(active.values())
-    lines = [f"\U0001f91d <b>Appointed agencies \u2014 {len(firms)}</b>",
-             f"{n_active} quoting \u00b7 {len(firms) - n_active} not quoting", ""]
-    shown = [k for k in total if not rep_hidden(k)]
-    ranked = sorted(shown, key=lambda k: (-total[k], -active[k], k))
+    n_all, n_active = sum(total.values()), sum(active.values())
+    lines = [f"\U0001f91d <b>Appointed agencies \u2014 {n_all}</b>",
+             f"{n_active} quoting \u00b7 {n_all - n_active} not quoting", ""]
+    ranked = sorted(total, key=lambda k: (-total[k], -active[k], k))
     for i, rep in enumerate(ranked):
         badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
         lines.append(f"{badge} {esc(rep)} \u2014 <b>{total[rep]}</b>")
