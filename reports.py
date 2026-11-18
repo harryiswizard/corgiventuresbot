@@ -364,8 +364,7 @@ def report(cfg, period, caches=None, previous=False):
             tally[rep] = tally.get(rep, 0) + 1
             rep_value[rep] = rep_value.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
         lines += leaderboard(tally, rep_value, by_value=True, limit=len(tally))
-    else:
-        lines.append("")
+    lines.append("")  # blank line between the Closed won list and Quotes sent
     lines += quotes_section(cfg, start, end, by_id, caches, [])
 
     if short:
