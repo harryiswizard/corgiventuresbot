@@ -240,7 +240,9 @@ def won_move_days(cfg, by_id):
     exactly what ~/twenty-scorecard/closedate_fix.py writes. Deals with no such
     edit (created at Closed Won, migrated) are left out and use their Close date."""
     from zoneinfo import ZoneInfo
-    ids = [i for i, o in by_id.items() if o.get("stage") == "CLOSED_WON"]
+    import bot
+    ids = [i for i, o in by_id.items()
+           if o.get("stage") == "CLOSED_WON" and not bot.is_backfill(o, cfg)]
     if not ids or not tw.TEAM_ID:
         return {}
     since = _since(cfg, datetime(2000, 1, 1, tzinfo=timezone.utc))
