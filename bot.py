@@ -1328,11 +1328,7 @@ def cmd_pipeline(cfg, caches):
 
 def appointments_line(cfg):
     """Appointed agencies: the running total, and how many this week and month."""
-    try:
-        appointed = tw.find_many("companies", {"filter": "appointed[eq]:true"},
-                                 page_size=60, max_pages=40)
-    except tw.TwentyError as e:
-        return f"\U0001f91d <b>Appointments</b>: lookup failed ({html.escape(str(e))})"
+    total = sum(v["total"] for v in atlas_book()["owners"].values())
 
     import reports
     recent = {"weekly": 0, "monthly": 0}
@@ -1353,7 +1349,7 @@ def appointments_line(cfg):
                     if ts >= cutoff:
                         recent[d] += 1
 
-    out = f"\U0001f91d <b>Appointed agencies: {len(appointed)}</b>"
+    out = f"\U0001f91d <b>Appointed agencies: {total}</b>"
     if any(recent.values()):
         out += f"\n   {recent['weekly']} this week \u00b7 {recent['monthly']} this month"
 
@@ -1501,39 +1497,31 @@ def cmd_broker(cfg, caches):
     return "\n".join(lines)
 
 
-def cmd_appointed(cfg, caches):
-    """Appointed agencies per owner, split by whether each has quoted in Atlas:
-    at least one deal at Quote Sent or later carrying an Atlas quote number, so
-    hand-keyed deals from before Atlas don't count. Owners in config
-    "appointed_hidden" or "hidden_reps" are left out of the totals too, so the
-    list always adds up to the headline."""
-    firms = [r for r in _APPTS.fresh() if r.get("appointed")]
-    skip = [h.lower() for h in cfg.get("appointed_hidden") or [] if h]
-    sent = stage_rank("QUOTE_SENT")
-    quoting = {o.get("companyId") for o in live_opportunities()
-               if watched(o, cfg) and o.get("stage") in STAGE_ORDER
-               and stage_rank(o.get("stage")) >= sent
-               and o.get("atlasQuoteNumbers")}
-    ctx = build_ctx([], caches)
-    total, active = {}, {}
-    for r in firms:
-        owner = r.get("partnerOwnerId") or r.get("accountOwnerId")
-        rep = member(ctx, owner) or "Unassigned"
-        if rep_hidden(rep) or any(h in rep.lower() for h in skip):
-            continue
-        total[rep] = total.get(rep, 0) + 1
-        active[rep] = active.get(rep, 0) + (r["id"] in quoting)
-    if not total:
-        return "\U0001f91d <b>Appointed agencies</b>\n\nNone appointed yet."
+def atlas_book():
+    """atlas_book.json: appointed agencies per owner, built from a read of Atlas
+    (Twenty's Appointed flag can't be corrected with the team key)."""
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "atlas_book.json")) as f:
+        return json.load(f)
 
-    n_all, n_active = sum(total.values()), sum(active.values())
+
+def cmd_appointed(cfg, caches):
+    """Active Atlas partners per deal owner. Quoting = at least one live Atlas
+    quote that is quoted or purchased."""
+    book = atlas_book()
+    skip = [h.lower() for h in cfg.get("appointed_hidden") or [] if h]
+    rows = {k: v for k, v in book["owners"].items()
+            if not rep_hidden(k) and not any(h in k.lower() for h in skip)}
+    n_all = sum(v["total"] for v in rows.values())
+    n_active = sum(v["quoting"] for v in rows.values())
     lines = [f"\U0001f91d <b>Appointed agencies \u2014 {n_all}</b>",
-             f"{n_active} quoting \u00b7 {n_all - n_active} not quoting", ""]
-    ranked = sorted(total, key=lambda k: (-total[k], -active[k], k))
+             f"{n_active} quoting \u00b7 {n_all - n_active} not quoting",
+             f"From Atlas, {esc(book['as_of'])}", ""]
+    ranked = sorted(rows, key=lambda k: (-rows[k]["total"], -rows[k]["quoting"], k))
     for i, rep in enumerate(ranked):
         badge = MEDALS[i] if i < len(MEDALS) else f"{i + 1}."
-        lines.append(f"{badge} {esc(rep)} \u2014 <b>{total[rep]}</b>")
-        lines.append(f"   {active[rep]} quoting \u00b7 {total[rep] - active[rep]} not")
+        t, q = rows[rep]["total"], rows[rep]["quoting"]
+        lines.append(f"{badge} {esc(rep)} \u2014 <b>{t}</b>")
+        lines.append(f"   {q} quoting \u00b7 {t - q} not")
     return "\n".join(lines)
 
 
