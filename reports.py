@@ -285,8 +285,8 @@ def quotes_sent(cfg, start, end, by_id):
     return reached_stage(cfg, start, end, by_id, "QUOTE_SENT")
 
 
-def quotes_section(cfg, start, end, by_id, caches, sent_evs, limit=10):
-    """Quotes sent in the window, with a rep leaderboard."""
+def quotes_section(cfg, start, end, by_id, caches, sent_evs):
+    """Quotes sent in the window, with every rep who sent one."""
     import bot
     ctx = bot.build_ctx(list(by_id.values()), caches or ({}, {}))
     try:
@@ -304,7 +304,7 @@ def quotes_section(cfg, start, end, by_id, caches, sent_evs, limit=10):
         rep_value[rep] = rep_value.get(rep, 0.0) + v
         total += v
     return ([f"{OUTBOX} <b>Quotes sent: {len(rows)} · {fmt_money(total)}</b>"]
-            + leaderboard(tally, rep_value, limit=limit))
+            + leaderboard(tally, rep_value, limit=len(tally)))
 
 
 def report(cfg, period, caches=None, previous=False):
@@ -319,7 +319,6 @@ def report(cfg, period, caches=None, previous=False):
     lines = [f"<b>{label} \u2014 {title}</b>"]
     # Short format (Harry 2026-11-18): everything except today's /daily.
     short = previous or period in ("weekly", "monthly")
-    top = 5 if short else 10
     try:
         counts, total, values, by_id = snapshot(cfg)
         arr = arrivals(cfg, start, end, by_id)
@@ -364,10 +363,10 @@ def report(cfg, period, caches=None, previous=False):
             rep = bot.rep_of(ctx, o)
             tally[rep] = tally.get(rep, 0) + 1
             rep_value[rep] = rep_value.get(rep, 0.0) + (amount_value(o.get("amount")) or 0.0)
-        lines += leaderboard(tally, rep_value, by_value=True, limit=top)
+        lines += leaderboard(tally, rep_value, by_value=True, limit=len(tally))
     else:
         lines.append("")
-    lines += quotes_section(cfg, start, end, by_id, caches, [], limit=top)
+    lines += quotes_section(cfg, start, end, by_id, caches, [])
 
     if short:
         open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
