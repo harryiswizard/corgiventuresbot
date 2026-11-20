@@ -1836,13 +1836,27 @@ def main():
 
         poller_t = threading.Thread(target=loop_poller, name="poller", daemon=True)
         poller_t.start()
-        while time.time() < deadline and poller_t.is_alive():
+        def drain_once(w):
             try:
-                drain_commands(cfg, tg, state, caches,
-                               wait=max(1, min(25, int(deadline - time.time()))))
+                drain_commands(cfg, tg, state, caches, wait=w)
             except Exception:
                 log("command loop error:\n" + traceback.format_exc())
                 time.sleep(5)
+
+        while time.time() < deadline and poller_t.is_alive():
+            # Stall guard (2026-11-20): a command once hung for 20+ min with no
+            # error, leaving commands unanswered while the run looked healthy.
+            # Run each drain on a worker; if it doesn't return in 5 min, dump
+            # stacks and end the run so the successor takes over.
+            w = max(1, min(25, int(deadline - time.time())))
+            t = threading.Thread(target=drain_once, args=(w,), name="commands", daemon=True)
+            t.start()
+            t.join(timeout=w + 300)
+            if t.is_alive():
+                import faulthandler
+                log("command thread stalled >5 min; dumping stacks and restarting")
+                faulthandler.dump_traceback(all_threads=True)
+                break
         poller_t.join(timeout=60)
         # Let an in-flight side-job batch finish so its state is saved.
         if _SIDE_LOCK.acquire(timeout=60):
