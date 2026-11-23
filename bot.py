@@ -1695,11 +1695,25 @@ def drain_commands(*a, **k):
     return _drain_commands(*a, **k)
 
 
+_OFFSET_CHECKED = []
+
+
 def _drain_commands(cfg, tg, state, caches, wait=0):
     """Answer queued Telegram commands. The offset is persisted so a `once`
     run never replays a command it has already answered."""
     offset = load_json(OFFSET_FILE, {}).get("offset", 0)
     allowed = set(chat_ids(tg))
+    if not _OFFSET_CHECKED:
+        # A saved offset ahead of Telegram's update ids (ids can jump, and the
+        # cache can restore an old run's file) makes getUpdates return nothing
+        # forever: every command goes unanswered with no error. Peek at what
+        # Telegram still holds unconfirmed and drop a saved offset past it.
+        _OFFSET_CHECKED.append(True)
+        peek = tg_api("getUpdates", tg, {"offset": 0, "timeout": 0, "limit": 100}, timeout=25)
+        ids = [u["update_id"] for u in (peek or {}).get("result", []) or []]
+        if ids and offset > max(ids) + 1:
+            log(f"telegram offset {offset} is past pending updates {min(ids)}-{max(ids)}; resetting")
+            offset = min(ids)
     d = tg_api("getUpdates", tg, {"offset": offset, "timeout": wait}, timeout=wait + 25)
     for u in (d or {}).get("result", []) or []:
         offset = u["update_id"] + 1
