@@ -754,6 +754,17 @@ class Incremental:
         """The live copy if it was refreshed in the last `max_age` seconds,
         else refresh it now. Commands use this so they don't re-download every
         deal (~5s) when the poller fetched them a moment ago."""
+        # Never queue behind the poller: when Twenty is rate-limiting, a poll
+        # can sit in 429 back-offs for minutes while holding the lock, and a
+        # command waiting on it looked like a dead bot. Any copy the poller
+        # already has (it refreshes every few seconds when Twenty lets it) is
+        # good enough for a report.
+        if self.by_id:
+            for _ in range(3):
+                try:
+                    return list(self.by_id.values())
+                except RuntimeError:     # dict resized by a concurrent merge
+                    time.sleep(0.05)
         with self.lock:
             if self.by_id and time.time() - self.last <= max_age:
                 return list(self.by_id.values())
