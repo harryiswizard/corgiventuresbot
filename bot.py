@@ -1715,6 +1715,9 @@ def _drain_commands(cfg, tg, state, caches, wait=0):
             log(f"telegram offset {offset} is past pending updates {min(ids)}-{max(ids)}; resetting")
             offset = min(ids)
     d = tg_api("getUpdates", tg, {"offset": offset, "timeout": wait}, timeout=wait + 25)
+    if _OFFSET_CHECKED and len(_OFFSET_CHECKED) == 1:
+        _OFFSET_CHECKED.append(True)
+        log(f"command loop: first getUpdates ok (offset {offset}, {len((d or {}).get('result') or [])} updates)")
     for u in (d or {}).get("result", []) or []:
         offset = u["update_id"] + 1
         msg = u.get("message") or u.get("channel_post") or {}
@@ -1850,7 +1853,23 @@ def main():
 
         poller_t = threading.Thread(target=loop_poller, name="poller", daemon=True)
         poller_t.start()
+        beat = {"t": time.time(), "dumped": False}
+
+        def cmd_watchdog():
+            # Commands have hung silently before with the poller healthy: if a
+            # drain makes no progress for 90s, dump every thread's stack once.
+            import faulthandler
+            while time.time() < deadline:
+                time.sleep(15)
+                if time.time() - beat["t"] > 90 and not beat["dumped"]:
+                    beat["dumped"] = True
+                    log("command loop stalled >90s; thread stacks:")
+                    faulthandler.dump_traceback(file=sys.stdout, all_threads=True)
+                    sys.stdout.flush()
+        threading.Thread(target=cmd_watchdog, name="cmd-watchdog", daemon=True).start()
+        log("command loop: starting")
         while time.time() < deadline and poller_t.is_alive():
+            beat["t"] = time.time()
             try:
                 drain_commands(cfg, tg, state, caches,
                                wait=max(1, min(25, int(deadline - time.time()))))
