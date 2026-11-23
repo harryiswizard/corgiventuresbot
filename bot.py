@@ -1337,6 +1337,11 @@ HELP = ("<b>Twenty deal bot</b>\n"
         + "\n".join(f"/{c} — {d}" for c, d in COMMANDS))
 
 
+def won_first(order):
+    """Stage list with Closed Won on top (most informative first)."""
+    return [s for s in order if s == "CLOSED_WON"] + [s for s in order if s != "CLOSED_WON"]
+
+
 def cmd_pipeline(cfg, caches):
     opps = [o for o in live_opportunities() if watched(o, cfg) and not hidden(o)]
     counts, totals = {}, {}
@@ -1346,7 +1351,7 @@ def cmd_pipeline(cfg, caches):
         totals[s] = totals.get(s, 0.0) + (amount_value(o.get("amount")) or 0.0)
     # Every stage is listed, empty ones included, so the shape of the pipeline
     # is always visible.
-    order = list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER]
+    order = won_first(list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER])
     lines = [f"<b>Pipeline now</b> — {len(opps)} deals"]
     for s in order:
         lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {stage_label(s)}: "
@@ -1427,12 +1432,11 @@ def cmd_closed(cfg, caches):
         if o.get("stage") == "CLOSED_WON":
             won_n[rep] = won_n.get(rep, 0) + 1
             won_v[rep] = won_v.get(rep, 0.0) + val
-    lines = [f"\U0001f4e5 <b>Submissions \u2014 {len(opps)}</b>"]
-    lines += leaderboard(sub_n, sub_v, limit=20)
+    # Closed won leads (Harry 2026-11-23: most informative first).
     total = sum(won_v.values())
     n_won = sum(won_n.values())
-    lines += ["", f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
-              f"{n_won} deal{'s' if n_won != 1 else ''}"]
+    lines = [f"\U0001f4b0 <b>Closed won \u2014 {fmt_money(total)}</b>",
+             f"{n_won} deal{'s' if n_won != 1 else ''}"]
     won_n = {k: v for k, v in won_n.items() if not rep_hidden(k)}
     if won_n:
         ranked = sorted(won_n, key=lambda k: (-won_v[k], -won_n[k], k))
@@ -1441,6 +1445,8 @@ def cmd_closed(cfg, caches):
             lines.append(f"   {badge} {esc(rep)} \u2014 <b>{won_n[rep]}</b> \u00b7 {fmt_money(won_v[rep])}")
     else:
         lines.append("   Nothing closed won yet.")
+    lines += ["", f"\U0001f4e5 <b>Submissions \u2014 {len(opps)}</b>"]
+    lines += leaderboard(sub_n, sub_v, limit=20)
     return "\n".join(lines)
 
 

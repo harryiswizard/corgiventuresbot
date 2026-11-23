@@ -377,9 +377,9 @@ def report(cfg, period, caches=None, previous=False):
     if short:
         open_val = sum(v for k, v in values.items() if k != "CLOSED_WON")
         lines.append(f"\n{NEW} <b>New deals: {len(new_deals(cfg, start, end, by_id))}</b>")
-        lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
         lines.append(f"Closed won to date: <b>{counts.get('CLOSED_WON', 0)} \u00b7 "
                      f"{fmt_money(values.get('CLOSED_WON') or 0)}</b>")
+        lines.append(f"Open pipeline value: <b>{fmt_money(open_val)}</b>")
         return "\n".join(lines)
 
     if cfg.get("show_appointments", True):
@@ -424,7 +424,7 @@ def report(cfg, period, caches=None, previous=False):
         lines.append("\n<b>By rep</b>\n   " +
                      " \u00b7 ".join(f"{html.escape(k)} {v}" for k, v in top))
 
-    order = list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER]
+    order = bot.won_first(list(STAGE_ORDER) + [s for s in counts if s not in STAGE_ORDER])
     lines.append(f"\n<b>Pipeline now</b> \u2014 {total} deals")
     for s in order:
         lines.append(f"{STAGE_EMOJI.get(s, BULLET)} {stage_label(s)}: "
