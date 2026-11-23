@@ -52,12 +52,29 @@ def _drop_conn():
             pass
 
 
+_STATS = {"t": time.time(), "n": {}}
+_STATS_LOCK = threading.Lock()
+
+
+def _count(path):
+    """Requests per minute by object, logged so rate-limit trouble is visible."""
+    key = path.split("?")[0].strip("/").split("/")[0] or path
+    with _STATS_LOCK:
+        _STATS["n"][key] = _STATS["n"].get(key, 0) + 1
+        if time.time() - _STATS["t"] >= 60:
+            n = _STATS["n"]
+            print(f"[twenty] last {int(time.time() - _STATS['t'])}s: {sum(v for k, v in n.items() if k != '429')} req "
+                  + " ".join(f"{k}={v}" for k, v in sorted(n.items(), key=lambda kv: -kv[1])), flush=True)
+            _STATS["t"], _STATS["n"] = time.time(), {}
+
+
 def get(path, params=None, tok=None):
     tok = tok or token()
     url = urllib.parse.urlsplit(BASE).path + path
     if params:
         url += "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
     headers = {"Authorization": "Bearer " + tok, "User-Agent": UA}
+    _count(path)
     for attempt in range(4):
         try:
             c = _conn()
@@ -73,6 +90,8 @@ def get(path, params=None, tok=None):
         if r.status == 200:
             return json.loads(body)
         snippet = body[:200].decode("utf-8", "replace")
+        if r.status == 429:
+            _count("429")
         if r.status == 429 and attempt < 3:
             # Twenty allows 100 requests per 60s, so a couple of seconds is
             # never enough — wait out a meaningful slice of the window.

@@ -1202,7 +1202,10 @@ def poll_once(cfg, tg, state, caches, seed=False):
     # Roster log: refreshed whenever something changed, and at least every
     # few minutes so the file is never stale.
     global _last_log
-    if changes or time.time() - _last_log > 300:
+    # On GitHub the logs/ folder isn't cached, so the CSV is thrown away;
+    # rebuilding it cost ~15 Twenty calls per change and starved commands
+    # once the London key got a 600/min budget.
+    if not os.environ.get("GITHUB_ACTIONS") and (changes or time.time() - _last_log > 300):
         try:
             import deal_log
             deal_log.write(deal_log.collect([o for o in live.values() if not hidden(o)]))
