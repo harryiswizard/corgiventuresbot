@@ -5,7 +5,7 @@ Twenty sits behind Cloudflare, which 403s (error 1010) on urllib's default
 User-Agent, so every request sends a curl UA. REST filters are `field[op]:value`
 and the brackets must be percent-encoded or the API silently returns nothing.
 """
-import http.client, json, os, threading, time, urllib.parse, urllib.request, urllib.error
+import http.client, json, os, random, threading, time, urllib.parse, urllib.request, urllib.error
 from concurrent.futures import ThreadPoolExecutor
 
 # TWENTY_BASE switches workspaces: the E&S bot reads the new Twenty
@@ -75,7 +75,7 @@ def get(path, params=None, tok=None):
         url += "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
     headers = {"Authorization": "Bearer " + tok, "User-Agent": UA}
     _count(path)
-    for attempt in range(4):
+    for attempt in range(8):
         try:
             c = _conn()
             c.request("GET", url, headers=headers)
@@ -92,10 +92,12 @@ def get(path, params=None, tok=None):
         snippet = body[:200].decode("utf-8", "replace")
         if r.status == 429:
             _count("429")
-        if r.status == 429 and attempt < 3:
-            # Twenty allows 100 requests per 60s, so a couple of seconds is
-            # never enough — wait out a meaningful slice of the window.
-            time.sleep([20, 40, 65][attempt])
+        if r.status == 429 and attempt < 7:
+            # The London key is a token bucket (600 per 60s) that refills about
+            # 10 a second, and other jobs share it. Short jittered retries get
+            # through in seconds; the old 20/40/65s waits held a report for
+            # minutes after a couple of 429s.
+            time.sleep([1, 2, 3, 5, 8, 10, 15][attempt] + random.random())
             continue
         if r.status in (500, 502, 503, 504) and attempt < 3:
             time.sleep(2 ** attempt)
