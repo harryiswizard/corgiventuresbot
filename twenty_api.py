@@ -180,11 +180,27 @@ def opportunity_timeline(since_iso, tok=None, ids=None):
     depend on the bot having been running, or on the deal being submitted.
     A report reads it twice (quotes, then closed won) for the same window, so
     results are cached briefly; id batches are fetched in parallel."""
+    if ids and TEAM_ID:
+        # The background copy (timeline_store) answers without a Twenty call.
+        import timeline_store
+        got = timeline_store.STORE.query(since_iso, ids)
+        if got is not None:
+            return got
     key = (since_iso, tuple(sorted(i for i in (ids or []) if i)) if ids else None)
     with _TL_LOCK:
         hit = _TL_CACHE.get(key)
         if hit and time.time() - hit[0] < _TL_TTL:
             return list(hit[1])
+    out = _fetch_timeline(since_iso, tok=tok, ids=ids)
+    with _TL_LOCK:
+        for k in [k for k, v in _TL_CACHE.items() if time.time() - v[0] >= _TL_TTL]:
+            _TL_CACHE.pop(k, None)
+        _TL_CACHE[key] = (time.time(), out)
+    return list(out)
+
+
+def _fetch_timeline(since_iso, tok=None, ids=None):
+    """Timeline entries straight from Twenty, stage values canonicalised."""
     if ids:
         # The new Twenty holds every team's deal history; asking only for our
         # deals keeps the query small and under the page cap.
@@ -212,11 +228,7 @@ def opportunity_timeline(since_iso, tok=None, ids=None):
         after = props.get("after")
         if isinstance(after, dict) and "stage" in after:
             after["stage"] = _canon(after["stage"])
-    with _TL_LOCK:
-        for k in [k for k, v in _TL_CACHE.items() if time.time() - v[0] >= _TL_TTL]:
-            _TL_CACHE.pop(k, None)
-        _TL_CACHE[key] = (time.time(), out)
-    return list(out)
+    return out
 
 
 def companies_by_id(ids, tok=None, chunk=30):

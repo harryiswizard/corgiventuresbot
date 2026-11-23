@@ -786,6 +786,18 @@ class Incremental:
 _OPPS = Incremental(lambda since: tw.opportunities(updated_since=since))
 
 
+def start_timeline_sync(cfg):
+    """Keep a local copy of the team's deal timeline so reports make no
+    Twenty calls (see timeline_store). New Twenty (team) mode only."""
+    if not tw.TEAM_ID:
+        return
+    import timeline_store
+    since = datetime.fromisoformat(cfg.get("history_since") or "2026-10-08T00:00:00+00:00")
+    horizon = since.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    timeline_store.start(lambda: [o for o in (_OPPS.fresh() if _OPPS.by_id else [])
+                                  if watched(o, cfg)], horizon, log)
+
+
 def live_opportunities():
     """Every deal, from the poller's live copy (seconds old) when it has one."""
     return _OPPS.fresh()
@@ -1867,6 +1879,7 @@ def main():
 
         poller_t = threading.Thread(target=loop_poller, name="poller", daemon=True)
         poller_t.start()
+        start_timeline_sync(cfg)
         beat = {"t": time.time(), "dumped": False}
 
         def cmd_watchdog():
@@ -1933,6 +1946,7 @@ def main():
             time.sleep(wait)
 
     threading.Thread(target=poller, name="poller", daemon=True).start()
+    start_timeline_sync(cfg)
     while True:
         try:
             drain_commands(cfg, tg, state, caches, wait=25)
