@@ -1329,6 +1329,8 @@ COMMANDS = [
     ("bymonth", "Book growth month by month"),
     ("byweek", "Book growth week by week"),
     ("broker", "Top producing Partners by closed won"),
+    ("collected", "Premium collected to date (from Atlas)"),
+    ("monthlycollected", "Premium collected this month"),
     ("appointed", "Appointed agencies per rep: quoting vs not"),
 ]
 _BOT_NAME = html.escape(load_config().get("bot_label") or "E&S")
@@ -1504,6 +1506,81 @@ def cmd_bymonth(cfg, caches):
     return "\n".join(lines)
 
 
+def _collected(o):
+    return amount_value(o.get("premiumCollected")) or 0.0
+
+
+def cmd_collected(cfg, caches):
+    """Premium collected to date: the sum of every London deal's
+    premiumCollected, which the Atlas sync writes daily (~07:15 UK)."""
+    opps = [o for o in live_opportunities() if watched(o, cfg) and _collected(o)]
+    ctx = build_ctx(opps, caches)
+    n, v = {}, {}
+    for o in opps:
+        rep = rep_of(ctx, o)
+        n[rep] = n.get(rep, 0) + 1
+        v[rep] = v.get(rep, 0.0) + _collected(o)
+    total = sum(v.values())
+    lines = [f"\U0001f4b5 <b>Collected to date \u2014 {fmt_money(total)}</b>",
+             f"{len(opps)} deal{'s' if len(opps) != 1 else ''} with premium collected", ""]
+    lines += leaderboard(n, v, limit=20) or ["   Nothing collected yet."]
+    lost = sum(_collected(o) for o in opps if hidden(o))
+    if lost:
+        lines += ["", f"<i>Includes {fmt_money(lost)} on Closed Lost deals.</i>"]
+    lines += ["", "<i>Synced from Atlas daily.</i>"]
+    return "\n".join(lines)
+
+
+def collected_since(cfg, start):
+    """{deal id: premium collected since `start`}, from Twenty's timeline: the
+    rise in premiumCollected on each edit (or its value on a create) since then."""
+    since = start.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    ids = [o["id"] for o in live_opportunities()
+           if watched(o, cfg) and (o.get("updatedAt") or "") >= since]
+    if not ids:
+        return {}
+    got = {}
+    for t in tw._fetch_timeline(since, ids=ids):
+        props = t.get("properties") or {}
+        if isinstance(props, str):
+            try:
+                props = json.loads(props)
+            except ValueError:
+                continue
+        d = (props.get("diff") or {}).get("premiumCollected")
+        if d:
+            delta = (amount_value(d.get("after")) or 0.0) - (amount_value(d.get("before")) or 0.0)
+        elif isinstance(props.get("after"), dict) and not props.get("diff"):
+            delta = amount_value(props["after"].get("premiumCollected")) or 0.0
+        else:
+            continue
+        if delta:
+            oid = t.get("targetOpportunityId")
+            got[oid] = got.get(oid, 0.0) + delta
+    return got
+
+
+def cmd_monthlycollected(cfg, caches):
+    """Premium collected since the 1st of this month (UK time)."""
+    import reports
+    start, _end, title = reports.window(cfg, "monthly")
+    got = collected_since(cfg, start)
+    by_id = {o["id"]: o for o in live_opportunities()}
+    opps = [by_id[i] for i, val in got.items() if i in by_id and val]
+    ctx = build_ctx(opps, caches)
+    n, v = {}, {}
+    for o in opps:
+        rep = rep_of(ctx, o)
+        n[rep] = n.get(rep, 0) + 1
+        v[rep] = v.get(rep, 0.0) + got[o["id"]]
+    total = sum(v.values())
+    lines = [f"\U0001f4b5 <b>Collected in {esc(title)} \u2014 {fmt_money(total)}</b>",
+             f"{len(opps)} deal{'s' if len(opps) != 1 else ''} with a collection this month", ""]
+    lines += leaderboard(n, v, limit=20) or ["   Nothing collected yet this month."]
+    lines += ["", "<i>Synced from Atlas daily.</i>"]
+    return "\n".join(lines)
+
+
 def cmd_broker(cfg, caches):
     """Producing Partners (at least one Closed Won deal) ranked by $ won, deal
     count breaking ties; each line also shows their submissions and owning rep."""
@@ -1657,7 +1734,8 @@ def cmd_deals(cfg, caches, arg=""):
 SLOW_COMMANDS = {"/daily", "/today", "/weekly", "/week", "/monthly", "/month",
                  "/yesterday", "/lastweek", "/lastmonth", "/deals",
                  "/pipeline", "/quotes", "/leaderboard", "/closed", "/won",
-                 "/bymonth", "/byweek", "/broker", "/brokers", "/appointed"}
+                 "/bymonth", "/byweek", "/broker", "/brokers", "/appointed",
+                 "/collected", "/monthlycollected", "/monthlycollectedt"}
 
 
 def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
@@ -1699,6 +1777,10 @@ def handle_command(text, chat_id, cfg, tg, state, caches, thread_id=None):
             send_long(tg, cmd_byweek(cfg, caches), chat_id, thread_id)
         elif cmd in ("/broker", "/brokers"):
             send_long(tg, cmd_broker(cfg, caches), chat_id, thread_id)
+        elif cmd == "/collected":
+            send_long(tg, cmd_collected(cfg, caches), chat_id, thread_id)
+        elif cmd in ("/monthlycollected", "/monthlycollectedt"):
+            send_long(tg, cmd_monthlycollected(cfg, caches), chat_id, thread_id)
         elif cmd == "/appointed":
             send_long(tg, cmd_appointed(cfg, caches), chat_id, thread_id)
         elif cmd == "/chatid":          # undocumented, for adding a group
